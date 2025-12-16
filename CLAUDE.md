@@ -87,9 +87,6 @@ src/
 tests/
 ├── integration/         # Repository & service integration tests
 └── e2e/                 # API endpoint tests
-
-scripts/
-└── setup_mongodb_indexes.py  # Index creation script
 ```
 
 ---
@@ -352,30 +349,6 @@ AWS_REGION=ap-northeast-2
 SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 ```
 
-### MongoDB Atlas Vector Search Index
-
-GrowthMemory 컬렉션에 Vector Search 인덱스 필요 (Atlas UI에서 생성):
-
-```json
-{
-  "name": "growth_memory_vector_index",
-  "definition": {
-    "mappings": {
-      "fields": {
-        "embedding": {
-          "type": "knnVector",
-          "dimensions": 1536,
-          "similarity": "cosine"
-        },
-        "memory_type": {
-          "type": "token"
-        }
-      }
-    }
-  }
-}
-```
-
 ---
 
 ## Adding New Features
@@ -491,9 +464,4 @@ pytest tests/e2e/ -v
 
 # Run with coverage
 pytest --cov=src --cov-report=html
-```
-
-### Setup MongoDB Indexes
-```bash
-python scripts/setup_mongodb_indexes.py
 ```
