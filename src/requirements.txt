@@ -23,3 +23,16 @@ loguru
 
 # Development
 python-dotenv
+
+# Claude Agent SDK
+anthropic
+claude-code-sdk
+
+# OpenAI (Embeddings)
+openai
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+httpx

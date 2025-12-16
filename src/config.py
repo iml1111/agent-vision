@@ -4,6 +4,7 @@ Application Configuration
 Pydantic BaseSettings for environment variable management.
 """
 import os
+from typing import Optional
 from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from __about__ import __version__, __author__, __app_name__
@@ -45,3 +46,17 @@ class Config(BaseSettings):
     # AWS SQS (Queue Worker)
     sqs_queue_url: str = Field(..., validation_alias=AliasChoices('SQS_QUEUE_URL', 'sqs_queue_url'))
     sqs_wait_time_seconds: int = 20  # Long polling wait time
+
+    # Claude Agent SDK
+    anthropic_api_key: str = Field(..., validation_alias=AliasChoices('ANTHROPIC_API_KEY', 'anthropic_api_key'))
+
+    # OpenAI (Embeddings)
+    openai_api_key: str = Field(..., validation_alias=AliasChoices('OPENAI_API_KEY', 'openai_api_key'))
+
+    # External Integrations (Optional for MVP)
+    slack_bot_token: Optional[str] = Field(None, validation_alias=AliasChoices('SLACK_BOT_TOKEN', 'slack_bot_token'))
+    notion_api_key: Optional[str] = Field(None, validation_alias=AliasChoices('NOTION_API_KEY', 'notion_api_key'))
+
+    # Agent Configuration
+    agent_max_loop_count: int = Field(10, validation_alias=AliasChoices('AGENT_MAX_LOOP_COUNT', 'agent_max_loop_count'))
+    agent_hitl_timeout_seconds: int = Field(3600, validation_alias=AliasChoices('AGENT_HITL_TIMEOUT_SECONDS', 'agent_hitl_timeout_seconds'))

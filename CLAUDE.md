@@ -1,15 +1,21 @@
-# VOID Project Context
+# Agent Vision Project Context
 
-**DDD + Hexagonal Architecture FastAPI Boilerplate**
+**Growth Hacking Agent Backend - DDD + Hexagonal Architecture**
 
 ---
 
 ## Project Overview
 
-VOID는 DDD + Hexagonal Architecture 패턴을 따르는 FastAPI 보일러플레이트입니다.
-실제 서비스 개발 시 clone하여 사용할 수 있도록 설계되었습니다.
+Agent Vision은 Growth Hacking을 위한 AI 에이전트 백엔드 시스템입니다.
+VOID 보일러플레이트 기반 DDD + Hexagonal Architecture 패턴을 따릅니다.
 
-**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | AWS SQS (FIFO) | httpx
+**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor + Atlas Vector Search) | Claude Agent SDK | OpenAI Embeddings
+
+**핵심 기능**:
+- Agent Orchestration: Plan→Act→Observe→Critique→Decide 루프
+- HITL (Human-in-the-Loop): 중요 의사결정시 인간 개입
+- Growth Memory: Vector Search 기반 RAG 시스템
+- External Tool Integration: Slack, Notion, EventLog 연동
 
 ---
 
@@ -34,25 +40,56 @@ Entity는 ID로 식별 (`__eq__`, `__hash__`), Set/Dict 키로 사용 가능
 
 ```
 src/
+├── config/              # Configuration modules
+│   └── allowlist.py     # Slack/Notion allowlist configuration
 ├── domain/              # Pure Python (no external dependencies)
 │   ├── entities/        # Domain entities with identity-based equality
+│   │   ├── agent_session.py    # Agent session entity
+│   │   ├── agent_loop.py       # Agent loop entity
+│   │   ├── observation.py      # Observation entity
+│   │   └── growth_memory.py    # Growth memory entity (with embeddings)
 │   ├── ports/           # Abstract interfaces (repositories)
 │   └── value_objects/   # Enums and value objects
+│       └── agent_enums.py      # SessionStatus, LoopPhase, DecisionType, etc.
 ├── service_layer/       # Use Cases
-│   ├── application/     # Application services
-│   └── exceptions.py    # Service layer exceptions (with status_code/error_type)
+│   └── application/
+│       ├── agent_orchestration_service.py  # Main agent loop orchestration
+│       ├── observation_service.py          # Tool result/error recording
+│       └── growth_memory_service.py        # RAG memory management
 ├── adapters/            # Infrastructure implementations
-│   ├── aws/             # SQS client, producer, consumer
-│   ├── http/            # HTTP client (httpx)
-│   ├── mongodb/         # MongoDB client, collections, base adapter
+│   ├── openai/          # OpenAI embedding client
+│   ├── external/        # Slack, Notion API clients
+│   ├── agent/           # Claude Agent SDK integration
+│   │   ├── mcp_server.py    # MCP server with tools
+│   │   ├── options.py       # Agent options configuration
+│   │   └── client.py        # GrowthAgentClient wrapper
+│   ├── agent_tools/     # Custom MCP tools
+│   │   ├── eventlog_tool.py     # MongoDB analytics queries
+│   │   ├── slack_tool.py        # Slack channel access
+│   │   ├── notion_tool.py       # Notion database access
+│   │   └── growth_memory_tool.py # Vector search RAG
+│   ├── agent_hooks/     # Agent lifecycle hooks
+│   │   ├── pre_tool_use.py     # Allowlist validation
+│   │   ├── post_tool_use.py    # Observation capture
+│   │   └── session_hooks.py    # Session end handling
+│   ├── mongodb/         # MongoDB client, collections, adapters
 │   ├── repositories/    # Repository implementations
 │   └── uow/             # Unit of Work implementation
 ├── entrypoints/         # Application entry points
-│   ├── api/             # FastAPI (routes, schemas, dependencies)
-│   ├── worker/          # SQS Worker (tasks, task_registry)
-│   └── cli/             # CLI Jobs (jobs, job_registry)
+│   ├── api/             # FastAPI
+│   │   ├── routes/agent.py     # Agent session API endpoints
+│   │   └── schemas/agent.py    # Request/Response schemas
+│   ├── worker/          # SQS Worker
+│   └── cli/             # CLI Jobs
 ├── config.py            # Pydantic BaseSettings
 └── __about__.py         # Version info
+
+tests/
+├── integration/         # Repository & service integration tests
+└── e2e/                 # API endpoint tests
+
+scripts/
+└── setup_mongodb_indexes.py  # Index creation script
 ```
 
 ---
@@ -254,11 +291,31 @@ async def process_item(item_id: str) -> None:
 
 ## Current API Endpoints
 
+### Core Endpoints
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
 | POST | `/api/v1/items` | Create item |
 | GET | `/api/v1/items/{id}` | Get item by ID |
+
+### Agent Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/agent/sessions` | Create agent session |
+| POST | `/api/v1/agent/sessions/{id}/messages` | Send message (start/continue processing) |
+| GET | `/api/v1/agent/sessions/{id}/status` | Poll session status |
+| GET | `/api/v1/agent/sessions/{id}/observations` | Get session observations |
+| POST | `/api/v1/agent/sessions/{id}/hitl` | Submit HITL response |
+| DELETE | `/api/v1/agent/sessions/{id}` | Cancel session |
+
+### Agent Session Status Flow
+```
+[created] → POST /messages → [processing] → GET /status (poll)
+                                   ↓
+            [waiting_hitl] ← needs HITL → POST /hitl → [processing]
+                                   ↓
+                            [completed] → final_decision in response
+```
 
 ---
 
@@ -269,13 +326,54 @@ async def process_item(item_id: str) -> None:
 ```bash
 # MongoDB
 MONGODB_URI=mongodb://localhost:27017
-MONGODB_NAME=void
+MONGODB_NAME=agent_vision
 
-# AWS
+# AI/LLM
+ANTHROPIC_API_KEY=sk-ant-xxx
+OPENAI_API_KEY=sk-xxx
+
+# External Integrations (Optional)
+SLACK_BOT_TOKEN=xoxb-xxx
+NOTION_API_KEY=secret_xxx
+
+# Agent Configuration
+AGENT_MAX_LOOP_COUNT=10
+AGENT_HITL_TIMEOUT_SECONDS=3600
+
+# Allowlist (JSON arrays)
+SLACK_CHANNEL_ALLOWLIST='[{"channel_id": "C123", "channel_name": "growth-data"}]'
+NOTION_DATABASE_ALLOWLIST='[{"database_id": "db123", "database_name": "Experiments"}]'
+NOTION_PAGE_ALLOWLIST='[{"page_id": "page123", "page_title": "Growth Playbook"}]'
+
+# AWS (Optional)
 AWS_ACCESS_KEY_ID=xxx
 AWS_SECRET_ACCESS_KEY=xxx
 AWS_REGION=ap-northeast-2
 SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
+```
+
+### MongoDB Atlas Vector Search Index
+
+GrowthMemory 컬렉션에 Vector Search 인덱스 필요 (Atlas UI에서 생성):
+
+```json
+{
+  "name": "growth_memory_vector_index",
+  "definition": {
+    "mappings": {
+      "fields": {
+        "embedding": {
+          "type": "knnVector",
+          "dimensions": 1536,
+          "similarity": "cosine"
+        },
+        "memory_type": {
+          "type": "token"
+        }
+      }
+    }
+  }
+}
 ```
 
 ---
@@ -308,3 +406,94 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 1. `domain/exceptions.py` - `DomainError` 또는 적절한 기본 예외 상속
 2. `domain/__init__.py` - 예외 export 추가
 3. API Route에서 `try-except` + `HTTPException` 변환
+
+### New Agent Tool
+1. `adapters/agent_tools/xxx_tool.py` - `@tool` 데코레이터로 함수 정의
+2. `adapters/agent/mcp_server.py` - MCP 서버에 tool 등록
+3. `adapters/agent/options.py` - `GROWTH_TOOL_NAMES`에 tool 이름 추가
+
+---
+
+## Agent System Architecture
+
+### Agent Loop (Plan→Act→Observe→Critique→Decide)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   AgentOrchestrationService             │
+├─────────────────────────────────────────────────────────┤
+│  Session Creation → Loop Execution → Decision Output    │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│                    GrowthAgentClient                    │
+│  (Claude Agent SDK wrapper with hooks & tools)          │
+├─────────────────────────────────────────────────────────┤
+│  PreToolUse Hooks:    Allowlist validation              │
+│  PostToolUse Hooks:   Observation capture               │
+│  Session Hooks:       Memory summarization              │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│                    MCP Server (Tools)                   │
+├─────────────────────────────────────────────────────────┤
+│  EventLog:       funnel_analysis, retention_analysis    │
+│  Slack:          list_channels, get_messages            │
+│  Notion:         list_resources, query_database         │
+│  GrowthMemory:   search_memory, get_recent              │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Decision Types
+
+| Type | Description | Session State |
+|------|-------------|---------------|
+| `CONTINUE` | Need more information | PROCESSING |
+| `HITL_QUESTION` | Request human input | WAITING_HITL |
+| `EXPERIMENT` | Recommend A/B test | COMPLETED |
+| `INSTRUMENTATION_TODO` | Need event tracking | COMPLETED |
+
+### Growth Memory (RAG)
+
+```python
+# Vector search for relevant context
+memories = await memory_service.search_relevant_memories(
+    query="user retention mobile",
+    limit=5
+)
+
+# Session summarization to long-term memory
+await memory_service.distill_session_to_memory(session_id)
+```
+
+### Allowlist Enforcement
+
+Server-side blocking via PreToolUse hooks:
+- Slack: Only whitelisted channel IDs
+- Notion: Only whitelisted database/page IDs
+- Violations raise `AllowlistViolationError`
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run integration tests (requires MongoDB)
+pytest tests/integration/ -v
+
+# Run E2E tests
+pytest tests/e2e/ -v
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+```
+
+### Setup MongoDB Indexes
+```bash
+python scripts/setup_mongodb_indexes.py
+```
