@@ -7,13 +7,12 @@ Similar to Worker task handlers pattern.
 from loguru import logger
 
 from entrypoints.cli.job_registry import JobRegistry
-from . import sample
 
+# Import all job modules here
+# from . import some_job
 
 # List of all job modules
-JOB_MODULES = [
-    sample,
-]
+JOB_MODULES = []
 
 
 def register_all_jobs() -> None:

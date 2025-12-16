@@ -35,23 +35,6 @@ class EntityValidationError(DomainError):
 
 
 # =============================================================================
-# Item-Specific Exceptions
-# =============================================================================
-
-
-class ItemNotFoundError(EntityNotFoundError):
-    """Item with given ID does not exist"""
-
-    pass
-
-
-class ItemValidationError(EntityValidationError):
-    """Item data validation failed"""
-
-    pass
-
-
-# =============================================================================
 # External Integration Exceptions
 # =============================================================================
 

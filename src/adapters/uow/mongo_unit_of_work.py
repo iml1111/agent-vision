@@ -5,11 +5,11 @@ Manages MongoDB transaction lifecycle using Motor's ClientSession.
 Creates session-aware repositories that share the same transaction.
 """
 from typing import Optional
+
 from loguru import logger
 from motor.motor_asyncio import AsyncIOMotorClientSession
+
 from adapters.mongodb.client import MongoDBClient
-from adapters.mongodb.collections.item_adapter import ItemAdapter
-from adapters.repositories.mongodb.item import MongoItemRepository
 from domain.ports.unit_of_work import AbstractUnitOfWork
 
 
@@ -28,8 +28,7 @@ class MongoUnitOfWork(AbstractUnitOfWork):
 
     Usage:
         async with MongoUnitOfWork(db_client) as uow:
-            item_id = await uow.item_repo.create(entity)
-            await uow.item_repo.update(entity2)
+            # Add repository operations here
             await uow.commit()  # Explicit commit
         # Auto-rollback if commit not called or exception raised
 
@@ -65,11 +64,12 @@ class MongoUnitOfWork(AbstractUnitOfWork):
 
         logger.debug("Started MongoDB transaction")
 
-        # Create session-aware adapters
-        item_adapter = ItemAdapter(self._db_client.db, session=self._session)
-
-        # Instantiate repositories (all share same session)
-        self.item_repo = MongoItemRepository(item_adapter)
+        # Add session-aware adapters and repositories here as needed
+        # Example:
+        # from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
+        # from adapters.repositories.mongodb.agent_session import MongoAgentSessionRepository
+        # agent_session_adapter = AgentSessionAdapter(self._db_client.db, session=self._session)
+        # self.agent_session_repo = MongoAgentSessionRepository(agent_session_adapter)
 
         return self
 

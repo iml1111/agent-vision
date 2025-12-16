@@ -7,7 +7,7 @@
 ## Project Overview
 
 Agent Vision은 Growth Hacking을 위한 AI 에이전트 백엔드 시스템입니다.
-VOID 보일러플레이트 기반 DDD + Hexagonal Architecture 패턴을 따릅니다.
+DDD + Hexagonal Architecture 패턴을 따릅니다.
 
 **기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor + Atlas Vector Search) | Claude Agent SDK | OpenAI Embeddings
 
@@ -98,17 +98,17 @@ tests/
 
 ```python
 # Repository Layer
-async def create(self, entity: ItemEntity) -> str:
+async def create(self, entity: AgentSessionEntity) -> str:
     doc = BaseMongoAdapter.prepare_for_insert(entity.to_dict())
     result = await self._adapter.insert_one(doc)
     return str(result.inserted_id)
 
 # Service Layer (단일 read: 직접 repository 호출)
-async def get_item(self, item_id: str) -> ItemEntity:
-    item = await self._item_repo.get_by_id(item_id)
-    if not item:
-        raise ItemNotFoundError(f"Item {item_id} not found")
-    return item
+async def get_session(self, session_id: str) -> AgentSessionEntity:
+    session = await self._session_repo.get_by_id(session_id)
+    if not session:
+        raise AgentSessionNotFoundError(f"Session {session_id} not found")
+    return session
 ```
 
 ---
@@ -118,27 +118,26 @@ async def get_item(self, item_id: str) -> ItemEntity:
 
 ```python
 @dataclass(eq=False, frozen=True)
-class ItemEntity(BaseEntity):
-    name: str
-    description: str
-    status: ItemStatus
+class AgentSessionEntity(BaseEntity):
+    goal: str
+    status: SessionStatus
     created_at: datetime
     id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def create(cls, name: str, ...) -> "ItemEntity":
+    def create(cls, goal: str, ...) -> "AgentSessionEntity":
         """Factory method for new entity creation"""
-        return cls(name=name, created_at=datetime.now(timezone.utc), ...)
+        return cls(goal=goal, status=SessionStatus.CREATED, created_at=datetime.now(timezone.utc), ...)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ItemEntity":
+    def from_dict(cls, data: Dict[str, Any]) -> "AgentSessionEntity":
         # _id → id conversion, field filtering
         ...
 
     def validate(self) -> None:
-        if not self.name.strip():
-            raise ValueError("Item name is required")
+        if not self.goal.strip():
+            raise ValueError("Session goal is required")
 
     def __eq__(self, other): return self.id == other.id
     def __hash__(self): return hash(self.id)
@@ -150,17 +149,17 @@ class ItemEntity(BaseEntity):
 **구조**: ABC Interface (Port) → MongoDB Implementation (Adapter)
 
 ```python
-# Port (domain/ports/item.py)
-class ItemRepository(ABC):
+# Port (domain/ports/agent_session.py)
+class AgentSessionRepository(ABC):
     @abstractmethod
-    async def create(self, entity: ItemEntity) -> str: ...
+    async def create(self, entity: AgentSessionEntity) -> str: ...
 
     @abstractmethod
-    async def get_by_id(self, item_id: str) -> Optional[ItemEntity]: ...
+    async def get_by_id(self, session_id: str) -> Optional[AgentSessionEntity]: ...
 
-# Adapter (adapters/repositories/mongodb/item.py)
-class MongoItemRepository(ItemRepository):
-    async def create(self, entity: ItemEntity) -> str:
+# Adapter (adapters/repositories/mongodb/agent_session.py)
+class MongoAgentSessionRepository(AgentSessionRepository):
+    async def create(self, entity: AgentSessionEntity) -> str:
         doc = BaseMongoAdapter.prepare_for_insert(entity.to_dict())
         result = await self._adapter.insert_one(doc)
         return str(result.inserted_id)
@@ -178,12 +177,12 @@ class MongoItemRepository(ItemRepository):
 ```python
 # 다중 write: UoW
 async with MongoUnitOfWork(db_client) as uow:
-    await uow.item_repo.create(entity1)
-    await uow.item_repo.create(entity2)
+    await uow.session_repo.create(session_entity)
+    await uow.loop_repo.create(loop_entity)
     await uow.commit()
 
 # 단일 read: 직접 호출
-item = await self._item_repo.get_by_id(item_id)
+session = await self._session_repo.get_by_id(session_id)
 ```
 
 **요구사항**: MongoDB Replica Set (트랜잭션 지원)
@@ -203,22 +202,18 @@ class EntityNotFoundError(DomainError):
     """Entity with given ID does not exist"""
     pass
 
-class ItemNotFoundError(EntityNotFoundError):
-    """Item with given ID does not exist"""
-    pass
-
-class ItemValidationError(DomainError):
-    """Item data validation failed"""
+class AgentSessionNotFoundError(EntityNotFoundError):
+    """Agent session with given ID does not exist"""
     pass
 
 # API Route - try-except + HTTPException 변환
-@router.get("/{item_id}")
-async def get_item(item_id: str, service = Depends(get_item_service)):
+@router.get("/{session_id}")
+async def get_session(session_id: str, service = Depends(get_orchestration_service)):
     try:
-        item = await service.get_item(item_id)
-    except ItemNotFoundError as e:
+        session = await service.get_session(session_id)
+    except AgentSessionNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return ItemResponse(...)
+    return SessionResponse(...)
 
 # 5XX 에러는 @app.exception_handler(Exception)이 자동 처리
 ```
@@ -247,15 +242,16 @@ async def lifespan(app: FastAPI):
 ```python
 # Worker task (Write 예시)
 @task
-async def process_item(data: Dict[str, Any]) -> None:
-    service = ItemService(db_client)
-    await service.create_item(name=data["name"], ...)
+async def process_session(data: Dict[str, Any]) -> None:
+    service = AgentOrchestrationService(db_client)
+    await service.create_session(goal=data["goal"], ...)
 
 # CLI job (Read 예시)
 @job
-async def process_item(item_id: str) -> None:
-    service = ItemService(db_client)
-    item = await service.get_item(item_id)
+async def export_session(session_id: str) -> None:
+    service = AgentOrchestrationService(db_client)
+    session = await service.get_session(session_id)
+    logger.info(f"Exporting session: {session.goal}")
 ```
 
 ---
@@ -279,7 +275,6 @@ async def process_item(item_id: str) -> None:
 ### CLI (Click)
 ```bash
 ./void run job <JOB_NAME>
-./void run job process_item --item-id 507f1f77bcf86cd799439011
 ```
 
 **구조**: `app.py` → `dependencies.initialize()` → `register_all_jobs()` → `handler.execute()`
@@ -292,8 +287,6 @@ async def process_item(item_id: str) -> None:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
-| POST | `/api/v1/items` | Create item |
-| GET | `/api/v1/items/{id}` | Get item by ID |
 
 ### Agent Endpoints
 | Method | Endpoint | Description |

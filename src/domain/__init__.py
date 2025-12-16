@@ -9,8 +9,6 @@ from .exceptions import (
     ExternalServiceError,
     InvalidCredentialsError,
     InvalidTokenError,
-    ItemNotFoundError,
-    ItemValidationError,
     SessionExpiredError,
 )
 
@@ -18,8 +16,6 @@ __all__ = [
     "DomainError",
     "EntityNotFoundError",
     "EntityValidationError",
-    "ItemNotFoundError",
-    "ItemValidationError",
     "ExternalServiceError",
     "ExternalAPIError",
     "AuthenticationError",

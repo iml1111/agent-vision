@@ -1,5 +1,4 @@
 """Domain Value Objects"""
-from .item_enums import ItemStatus
 from .agent_enums import (
     SessionStatus,
     LoopPhase,
@@ -9,7 +8,6 @@ from .agent_enums import (
 )
 
 __all__ = [
-    "ItemStatus",
     "SessionStatus",
     "LoopPhase",
     "ObservationType",

@@ -1,18 +1,24 @@
-# VOID
+# Agent Vision
 
-**DDD + Hexagonal Architecture FastAPI Boilerplate**
+**Growth Hacking Agent Backend - DDD + Hexagonal Architecture**
 
-A production-ready boilerplate for building FastAPI applications with Domain-Driven Design and Hexagonal Architecture patterns.
+AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Plan→Act→Observe→Critique→Decide 루프를 통해 데이터 기반 성장 전략을 자동으로 분석하고 제안합니다.
 
 ## Features
 
-- **Domain-Driven Design**: Clean separation of domain logic from infrastructure
-- **Hexagonal Architecture**: Port-Adapter pattern for flexible dependency management
-- **FastAPI**: Modern, fast web framework with automatic OpenAPI documentation
-- **MongoDB**: Async database operations with Motor
-- **AWS SQS**: FIFO queue integration for async task processing
-- **Unit of Work**: Transaction support with MongoDB replica sets
-- **Three Entrypoints**: API, Worker, CLI for different use cases
+- **Agent Orchestration**: Claude Agent SDK 기반 자율 에이전트 루프
+- **HITL (Human-in-the-Loop)**: 중요 의사결정시 인간 개입 지원
+- **Growth Memory**: Vector Search 기반 RAG 시스템으로 학습 컨텍스트 유지
+- **External Tool Integration**: Slack, Notion, EventLog 연동
+- **DDD + Hexagonal Architecture**: 확장 가능한 도메인 중심 설계
+
+## Tech Stack
+
+- **Runtime**: Python 3.9+
+- **Framework**: FastAPI
+- **Database**: MongoDB (Motor + Atlas Vector Search)
+- **AI/LLM**: Claude Agent SDK, OpenAI Embeddings
+- **Queue**: AWS SQS (optional)
 
 ## Quick Start
 
@@ -20,8 +26,8 @@ A production-ready boilerplate for building FastAPI applications with Domain-Dri
 
 ```bash
 # Clone the repository
-git clone <your-repo-url> your-project
-cd your-project
+git clone <your-repo-url> agent-vision
+cd agent-vision
 
 # Create virtual environment
 python -m venv venv
@@ -47,7 +53,7 @@ vi .env
 # API Server (development)
 ./void run api
 
-# SQS Worker
+# SQS Worker (optional)
 ./void run worker
 
 # CLI Job
@@ -58,105 +64,136 @@ vi .env
 
 ```
 src/
+├── config/              # Configuration modules
+│   └── allowlist.py     # Slack/Notion allowlist
 ├── domain/              # Pure Python domain logic
 │   ├── entities/        # Domain entities
+│   │   ├── agent_session.py
+│   │   ├── agent_loop.py
+│   │   ├── observation.py
+│   │   └── growth_memory.py
 │   ├── ports/           # Abstract interfaces
 │   └── value_objects/   # Enums and value objects
 ├── service_layer/       # Application services
-│   ├── application/     # Use case implementations
-│   └── exceptions.py    # Business exceptions
+│   └── application/
+│       ├── agent_orchestration_service.py
+│       ├── observation_service.py
+│       └── growth_memory_service.py
 ├── adapters/            # Infrastructure implementations
-│   ├── aws/             # SQS client/producer/consumer
-│   ├── http/            # HTTP client (httpx)
+│   ├── openai/          # OpenAI embedding client
+│   ├── external/        # Slack, Notion API clients
+│   ├── agent/           # Claude Agent SDK integration
+│   │   ├── mcp_server.py
+│   │   ├── options.py
+│   │   └── client.py
+│   ├── agent_tools/     # Custom MCP tools
+│   │   ├── eventlog_tool.py
+│   │   ├── slack_tool.py
+│   │   ├── notion_tool.py
+│   │   └── growth_memory_tool.py
+│   ├── agent_hooks/     # Agent lifecycle hooks
 │   ├── mongodb/         # MongoDB adapters
 │   ├── repositories/    # Repository implementations
 │   └── uow/             # Unit of Work
 ├── entrypoints/         # Application entry points
-│   ├── api/             # FastAPI application
+│   ├── api/             # FastAPI
 │   ├── worker/          # SQS Worker
 │   └── cli/             # CLI Jobs
-└── config.py            # Configuration
-```
-
-## Available Commands
-
-```bash
-# Start API server with hot reload
-./void run api
-
-# Start SQS consumer worker
-./void run worker
-
-# Run a specific CLI job
-./void run job process_item --item-id 507f1f77bcf86cd799439011
-
-# List available jobs
-./void run job list
+└── config.py            # Pydantic BaseSettings
 ```
 
 ## API Endpoints
 
+### Core
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | Root endpoint |
 | GET | `/health` | Health check |
-| POST | `/api/v1/items` | Create item |
-| GET | `/api/v1/items/{id}` | Get item by ID |
+
+### Agent Sessions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/agent/sessions` | Create agent session |
+| POST | `/api/v1/agent/sessions/{id}/messages` | Send message (start/continue) |
+| GET | `/api/v1/agent/sessions/{id}/status` | Poll session status |
+| GET | `/api/v1/agent/sessions/{id}/observations` | Get session observations |
+| POST | `/api/v1/agent/sessions/{id}/hitl` | Submit HITL response |
+| DELETE | `/api/v1/agent/sessions/{id}` | Cancel session |
+
+### Session Status Flow
+
+```
+[created] → POST /messages → [processing] → GET /status (poll)
+                                   ↓
+            [waiting_hitl] ← needs HITL → POST /hitl → [processing]
+                                   ↓
+                            [completed] → final_decision in response
+```
+
+## Agent System
+
+### Loop Phases
+
+```
+Plan → Act → Observe → Critique → Decide
+  │      │       │         │         │
+  │      │       │         │         └─ CONTINUE / HITL_QUESTION / EXPERIMENT
+  │      │       │         └─ Evaluate tool results
+  │      │       └─ Capture observations via hooks
+  │      └─ Execute MCP tools
+  └─ Claude Agent reasoning
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `eventlog_*` | MongoDB analytics queries (funnel, retention) |
+| `slack_*` | Slack channel access (allowlisted) |
+| `notion_*` | Notion database access (allowlisted) |
+| `growth_memory_*` | Vector search RAG |
+
+### Decision Types
+
+| Type | Description |
+|------|-------------|
+| `CONTINUE` | Need more information, continue loop |
+| `HITL_QUESTION` | Request human input |
+| `EXPERIMENT` | Recommend A/B test |
+| `INSTRUMENTATION_TODO` | Need event tracking |
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENVIRONMENT` | Environment name | `development` |
-| `DEBUG` | Debug mode | `true` |
-| `MONGODB_URI` | MongoDB connection URI | `mongodb://localhost:27017` |
-| `MONGODB_NAME` | Database name | `void` |
-| `AWS_ACCESS_KEY_ID` | AWS access key | - |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key | - |
-| `AWS_REGION` | AWS region | `ap-northeast-2` |
-| `SQS_QUEUE_URL` | SQS FIFO queue URL | - |
-
-## Architecture
-
-This project follows **Domain-Driven Design (DDD)** and **Hexagonal Architecture** principles:
-
-### Layers
-
-1. **Domain Layer** (`domain/`)
-   - Pure Python with no external dependencies
-   - Contains entities, value objects, and port interfaces
-
-2. **Service Layer** (`service_layer/`)
-   - Application services implementing use cases
-   - Orchestrates domain logic and infrastructure
-
-3. **Adapters Layer** (`adapters/`)
-   - Infrastructure implementations
-   - MongoDB repositories, AWS clients, HTTP clients
-
-4. **Entrypoints Layer** (`entrypoints/`)
-   - Application entry points
-   - API routes, Worker tasks, CLI jobs
-
-### Key Patterns
-
-- **Repository Pattern**: Abstract data access through interfaces
-- **Unit of Work**: Transactional consistency (use only for multi-write operations)
-- **Dependency Injection**: FastAPI's Depends for loose coupling
-- **Task Registry**: Decorator-based worker task registration
-- **Job Registry**: Decorator-based CLI job registration
-- **Exception Pattern**: Class-level `status_code`/`error_type` for automatic HTTP response mapping
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `MONGODB_URI` | MongoDB connection URI | Yes |
+| `MONGODB_NAME` | Database name | Yes |
+| `ANTHROPIC_API_KEY` | Claude API key | Yes |
+| `OPENAI_API_KEY` | OpenAI API key (embeddings) | Yes |
+| `SLACK_BOT_TOKEN` | Slack bot token | Optional |
+| `NOTION_API_KEY` | Notion API key | Optional |
+| `AGENT_MAX_LOOP_COUNT` | Max agent loop iterations | No (default: 10) |
+| `AGENT_HITL_TIMEOUT_SECONDS` | HITL response timeout | No (default: 3600) |
+| `SLACK_CHANNEL_ALLOWLIST` | JSON array of allowed channels | Optional |
+| `NOTION_DATABASE_ALLOWLIST` | JSON array of allowed databases | Optional |
+| `NOTION_PAGE_ALLOWLIST` | JSON array of allowed pages | Optional |
 
 ## Development
 
 ### Adding a New Entity
 
-1. Create entity in `domain/entities/` (with `create()` factory method)
+1. Create entity in `domain/entities/`
 2. Define repository port in `domain/ports/`
-3. Add value objects in `domain/value_objects/` (if needed)
-4. Implement MongoDB adapter in `adapters/mongodb/collections/`
-5. Implement repository in `adapters/repositories/mongodb/`
-6. Register repository in `adapters/uow/mongo_unit_of_work.py`
+3. Implement MongoDB adapter in `adapters/mongodb/collections/`
+4. Implement repository in `adapters/repositories/mongodb/`
+5. Register in `adapters/uow/mongo_unit_of_work.py`
+
+### Adding a New Agent Tool
+
+1. Create tool in `adapters/agent_tools/xxx_tool.py` with `@tool` decorator
+2. Register in `adapters/agent/mcp_server.py`
+3. Add to `GROWTH_TOOL_NAMES` in `adapters/agent/options.py`
 
 ### Adding a New API Endpoint
 
@@ -164,27 +201,25 @@ This project follows **Domain-Driven Design (DDD)** and **Hexagonal Architecture
 2. Create route handler in `entrypoints/api/routes/`
 3. Register router in `entrypoints/api/routes/__init__.py`
 
-### Adding a New Worker Task
+## Testing
 
-1. Create task handler with `@task` decorator in `entrypoints/worker/tasks/`
-2. Add module to `TASK_MODULES` in `entrypoints/worker/tasks/__init__.py`
+```bash
+# Run all tests
+pytest
 
-### Adding a New CLI Job
+# Run with coverage
+pytest --cov=src --cov-report=html
 
-1. Create job handler with `@job` decorator in `entrypoints/cli/jobs/`
-2. Add module to `JOB_MODULES` in `entrypoints/cli/jobs/__init__.py`
-
-### Adding a New Exception
-
-1. Define exception in `service_layer/exceptions.py` inheriting from `ServiceError`
-2. Set `status_code` and `error_type` class attributes
-3. Exception is automatically handled by API (no additional registration needed)
+# Run integration tests (requires MongoDB)
+pytest tests/integration/ -v
+```
 
 ## Requirements
 
 - Python 3.9+
 - MongoDB (Replica Set for transactions)
-- AWS Account (for SQS)
+- Anthropic API access (Claude)
+- OpenAI API access (Embeddings)
 
 ## License
 

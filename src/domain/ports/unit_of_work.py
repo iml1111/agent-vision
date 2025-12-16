@@ -5,10 +5,6 @@ Abstract interface for managing atomic transactions across repositories.
 Service layer depends on this abstraction, not implementation details.
 """
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from domain.ports.item import ItemRepository
 
 
 class AbstractUnitOfWork(ABC):
@@ -20,8 +16,7 @@ class AbstractUnitOfWork(ABC):
 
     Usage:
         async with uow:
-            item_id = await uow.item_repo.create(entity)
-            await uow.item_repo.update(entity2)
+            # Add repository operations here
             await uow.commit()  # Explicit commit
         # Auto-rollback on exception
 
@@ -33,7 +28,9 @@ class AbstractUnitOfWork(ABC):
     """
 
     # Repository properties (initialized in __aenter__)
-    item_repo: 'ItemRepository'
+    # Add repository type hints here as needed
+    # Example:
+    # agent_session_repo: 'AgentSessionRepository'
 
     async def __aenter__(self):
         """

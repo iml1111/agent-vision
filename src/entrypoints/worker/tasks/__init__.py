@@ -5,13 +5,14 @@ Worker task handlers that delegate to Service Layer.
 Similar to FastAPI route handlers that call services.
 """
 from loguru import logger
+
 from entrypoints.worker.task_registry import TaskRegistry
 
-# Import all task modules
-from . import sample
+# Import all task modules here
+# from . import some_task
 
 # All task modules
-TASK_MODULES = [sample]
+TASK_MODULES = []
 
 
 def register_all_tasks() -> None:
