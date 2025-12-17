@@ -6,16 +6,15 @@
 
 ## Project Overview
 
-Agent Vision은 Growth Hacking을 위한 AI 에이전트 백엔드 시스템입니다.
+Agent Vision은 Growth Hacking을 위한 대화형 AI 에이전트 백엔드 시스템입니다.
 DDD + Hexagonal Architecture 패턴을 따릅니다.
 
-**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor + Atlas Vector Search) | Claude Agent SDK | OpenAI Embeddings
+**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | OpenAI Embeddings
 
 **핵심 기능**:
-- Agent Orchestration: Plan→Act→Observe→Critique→Decide 루프
-- HITL (Human-in-the-Loop): 중요 의사결정시 인간 개입
-- Growth Memory: Vector Search 기반 RAG 시스템
-- External Tool Integration: Slack, Notion, EventLog 연동
+- Conversational Agent: 연속 대화 기반 Growth 분석
+- Growth Memory: Vector Search 기반 RAG
+- External Tools: Slack, Notion, EventLog
 
 ---
 
@@ -40,21 +39,18 @@ Entity는 ID로 식별 (`__eq__`, `__hash__`), Set/Dict 키로 사용 가능
 
 ```
 src/
-├── config/              # Configuration modules
-│   └── allowlist.py     # Slack/Notion allowlist configuration
+├── config/              # Configuration modules (empty, for future use)
 ├── domain/              # Pure Python (no external dependencies)
 │   ├── entities/        # Domain entities with identity-based equality
 │   │   ├── agent_session.py    # Agent session entity
-│   │   ├── agent_loop.py       # Agent loop entity
-│   │   ├── observation.py      # Observation entity
+│   │   ├── message.py          # Conversation message entity
 │   │   └── growth_memory.py    # Growth memory entity (with embeddings)
 │   ├── ports/           # Abstract interfaces (repositories)
 │   └── value_objects/   # Enums and value objects
-│       └── agent_enums.py      # SessionStatus, LoopPhase, DecisionType, etc.
+│       └── agent_enums.py      # SessionStatus, MessageRole, GrowthMemoryType
 ├── service_layer/       # Use Cases
 │   └── application/
-│       ├── agent_orchestration_service.py  # Main agent loop orchestration
-│       ├── observation_service.py          # Tool result/error recording
+│       ├── agent_orchestration_service.py  # Conversational agent orchestration
 │       └── growth_memory_service.py        # RAG memory management
 ├── adapters/            # Infrastructure implementations
 │   ├── openai/          # OpenAI embedding client
@@ -70,7 +66,7 @@ src/
 │   │   └── growth_memory_tool.py # Vector search RAG
 │   ├── agent_hooks/     # Agent lifecycle hooks
 │   │   ├── pre_tool_use.py     # Allowlist validation
-│   │   ├── post_tool_use.py    # Observation capture
+│   │   ├── post_tool_use.py    # Audit logging
 │   │   └── session_hooks.py    # Session end handling
 │   ├── mongodb/         # MongoDB client, collections, adapters
 │   ├── repositories/    # Repository implementations
@@ -119,25 +115,26 @@ async def get_session(self, session_id: str) -> AgentSessionEntity:
 ```python
 @dataclass(eq=False, frozen=True)
 class AgentSessionEntity(BaseEntity):
-    goal: str
     status: SessionStatus
     created_at: datetime
     id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    goal: Optional[str] = None      # 첫 메시지에서 자동 설정
+    context: Optional[Dict[str, Any]] = None
+    updated_at: Optional[datetime] = None
+    archived_at: Optional[datetime] = None
+    archive_reason: Optional[str] = None
 
     @classmethod
-    def create(cls, goal: str, ...) -> "AgentSessionEntity":
-        """Factory method for new entity creation"""
-        return cls(goal=goal, status=SessionStatus.CREATED, created_at=datetime.now(timezone.utc), ...)
+    def create(cls) -> "AgentSessionEntity":
+        """Factory method - goal is set from first message"""
+        return cls(
+            status=SessionStatus.ACTIVE,
+            created_at=datetime.now(timezone.utc)
+        )
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AgentSessionEntity":
-        # _id → id conversion, field filtering
-        ...
-
-    def validate(self) -> None:
-        if not self.goal.strip():
-            raise ValueError("Session goal is required")
+    def has_goal(self) -> bool:
+        """Check if session has a goal set"""
+        return self.goal is not None and len(self.goal.strip()) > 0
 
     def __eq__(self, other): return self.id == other.id
     def __hash__(self): return hash(self.id)
@@ -178,7 +175,7 @@ class MongoAgentSessionRepository(AgentSessionRepository):
 # 다중 write: UoW
 async with MongoUnitOfWork(db_client) as uow:
     await uow.session_repo.create(session_entity)
-    await uow.loop_repo.create(loop_entity)
+    await uow.message_repo.create(message_entity)
     await uow.commit()
 
 # 단일 read: 직접 호출
@@ -242,14 +239,15 @@ async def lifespan(app: FastAPI):
 ```python
 # Worker task (Write 예시)
 @task
-async def process_session(data: Dict[str, Any]) -> None:
-    service = AgentOrchestrationService(db_client)
-    await service.create_session(goal=data["goal"], ...)
+async def create_session_task(data: Dict[str, Any]) -> None:
+    service = AgentOrchestrationService(db_client, embedding_client)
+    session = await service.create_session()  # 빈 세션 생성, goal은 첫 메시지에서 설정
+    await service.process_message(session.id, data["initial_message"])
 
 # CLI job (Read 예시)
 @job
 async def export_session(session_id: str) -> None:
-    service = AgentOrchestrationService(db_client)
+    service = AgentOrchestrationService(db_client, embedding_client)
     session = await service.get_session(session_id)
     logger.info(f"Exporting session: {session.goal}")
 ```
@@ -288,52 +286,57 @@ async def export_session(session_id: str) -> None:
 |--------|----------|-------------|
 | GET | `/health` | Health check |
 
-### Agent Endpoints
+### Agent Endpoints (Conversational)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/v1/agent/sessions` | Create agent session |
-| POST | `/api/v1/agent/sessions/{id}/messages` | Send message (start/continue processing) |
-| GET | `/api/v1/agent/sessions/{id}/status` | Poll session status |
-| GET | `/api/v1/agent/sessions/{id}/observations` | Get session observations |
-| POST | `/api/v1/agent/sessions/{id}/hitl` | Submit HITL response |
-| DELETE | `/api/v1/agent/sessions/{id}` | Cancel session |
+| POST | `/api/v1/agent/sessions` | Create empty session (goal = null) |
+| POST | `/api/v1/agent/sessions/{id}/messages` | Send message & get agent response (first message becomes goal) |
+| GET | `/api/v1/agent/sessions/{id}/messages` | Get conversation history |
+| GET | `/api/v1/agent/sessions/{id}/status` | Get session status |
+| POST | `/api/v1/agent/sessions/{id}/archive` | Archive session |
+| DELETE | `/api/v1/agent/sessions/{id}` | Delete session |
 
-### Agent Session Status Flow
+### Session Status Flow
 ```
-[created] → POST /messages → [processing] → GET /status (poll)
-                                   ↓
-            [waiting_hitl] ← needs HITL → POST /hitl → [processing]
-                                   ↓
-                            [completed] → final_decision in response
+POST /sessions → [active, goal=null]
+       ↓
+POST /messages → first message sets goal → [active, goal="..."]
+       ↓
+POST /messages → continuous conversation → [active]
+       ↓
+POST /archive → [archived] (can be referenced later)
+       ↓
+DELETE → permanently removed
 ```
+
+### Session Status Values
+| Status | Description |
+|--------|-------------|
+| `active` | 대화 진행 중 (기본 상태) |
+| `paused` | 일시 중지 |
+| `archived` | 보관됨 (다시 활성화 가능) |
 
 ---
 
 ## Configuration
 
-환경변수는 `.env` 파일 또는 시스템 환경변수로 설정:
+환경변수 (`.env` 파일 또는 시스템 환경변수). Config 클래스에 allowlist 포함:
 
 ```bash
-# MongoDB
+# Core
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_NAME=agent_vision
-
-# AI/LLM
 ANTHROPIC_API_KEY=sk-ant-xxx
 OPENAI_API_KEY=sk-xxx
 
-# External Integrations (Optional)
+# External (Optional)
 SLACK_BOT_TOKEN=xoxb-xxx
 NOTION_API_KEY=secret_xxx
 
-# Agent Configuration
-AGENT_MAX_LOOP_COUNT=10
-AGENT_HITL_TIMEOUT_SECONDS=3600
-
-# Allowlist (JSON arrays)
+# Allowlist (JSON arrays, integrated into Config)
 SLACK_CHANNEL_ALLOWLIST='[{"channel_id": "C123", "channel_name": "growth-data"}]'
 NOTION_DATABASE_ALLOWLIST='[{"database_id": "db123", "database_name": "Experiments"}]'
-NOTION_PAGE_ALLOWLIST='[{"page_id": "page123", "page_title": "Growth Playbook"}]'
+NOTION_PAGE_ALLOWLIST='[{"page_id": "page123", "page_name": "Growth Playbook"}]'
 
 # AWS (Optional)
 AWS_ACCESS_KEY_ID=xxx
@@ -382,13 +385,14 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 
 ## Agent System Architecture
 
-### Agent Loop (Plan→Act→Observe→Critique→Decide)
+### Conversational Agent Flow
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   AgentOrchestrationService             │
 ├─────────────────────────────────────────────────────────┤
-│  Session Creation → Loop Execution → Decision Output    │
+│  Session Create → Message Processing → Response         │
+│  (Continuous conversation without workflow boundaries)  │
 └───────────────────────────┬─────────────────────────────┘
                             │
                             ▼
@@ -397,7 +401,7 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 │  (Claude Agent SDK wrapper with hooks & tools)          │
 ├─────────────────────────────────────────────────────────┤
 │  PreToolUse Hooks:    Allowlist validation              │
-│  PostToolUse Hooks:   Observation capture               │
+│  PostToolUse Hooks:   Audit logging                     │
 │  Session Hooks:       Memory summarization              │
 └───────────────────────────┬─────────────────────────────┘
                             │
@@ -412,14 +416,18 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Decision Types
+### Message Entity
 
-| Type | Description | Session State |
-|------|-------------|---------------|
-| `CONTINUE` | Need more information | PROCESSING |
-| `HITL_QUESTION` | Request human input | WAITING_HITL |
-| `EXPERIMENT` | Recommend A/B test | COMPLETED |
-| `INSTRUMENTATION_TODO` | Need event tracking | COMPLETED |
+```python
+@dataclass(eq=False, frozen=True)
+class MessageEntity(BaseEntity):
+    session_id: str
+    role: MessageRole          # user | assistant | system
+    content: str
+    created_at: datetime
+    id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None  # tool_calls, errors, etc.
+```
 
 ### Growth Memory (RAG)
 
@@ -436,10 +444,10 @@ await memory_service.distill_session_to_memory(session_id)
 
 ### Allowlist Enforcement
 
-Server-side blocking via PreToolUse hooks:
+Server-side blocking via PreToolUse hooks (allowlist integrated into Config):
 - Slack: Only whitelisted channel IDs
 - Notion: Only whitelisted database/page IDs
-- Violations raise `AllowlistViolationError`
+- Violations return deny decision (not exception)
 
 ---
 

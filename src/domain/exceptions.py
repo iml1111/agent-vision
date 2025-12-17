@@ -57,35 +57,6 @@ class ExternalAPIError(ExternalServiceError):
 
 
 # =============================================================================
-# Authentication Exceptions
-# =============================================================================
-
-
-class AuthenticationError(DomainError):
-    """Base exception for authentication errors"""
-
-    pass
-
-
-class InvalidCredentialsError(AuthenticationError):
-    """Invalid username or password"""
-
-    pass
-
-
-class AuthSessionExpiredError(AuthenticationError):
-    """Auth session has expired or does not exist"""
-
-    pass
-
-
-class InvalidTokenError(AuthenticationError):
-    """Invalid or malformed token"""
-
-    pass
-
-
-# =============================================================================
 # Agent Session Exceptions
 # =============================================================================
 
@@ -102,50 +73,10 @@ class AgentSessionNotFoundError(AgentSessionError, EntityNotFoundError):
     pass
 
 
-class SessionExpiredError(AgentSessionError):
-    """Agent session has expired"""
-
-    pass
-
-
 class InvalidSessionStateError(AgentSessionError):
     """Invalid session state for the requested operation"""
 
     pass
-
-
-class LoopLimitExceededError(AgentSessionError):
-    """Agent loop limit has been exceeded"""
-
-    pass
-
-
-class HITLTimeoutError(AgentSessionError):
-    """HITL response timeout"""
-
-    pass
-
-
-# =============================================================================
-# Allowlist Exceptions
-# =============================================================================
-
-
-class AllowlistError(DomainError):
-    """Base exception for allowlist errors"""
-
-    pass
-
-
-class AllowlistViolationError(AllowlistError):
-    """Access to resource not in allowlist"""
-
-    def __init__(self, resource_type: str, resource_id: str):
-        self.resource_type = resource_type
-        self.resource_id = resource_id
-        super().__init__(
-            f"Access denied: {resource_type} '{resource_id}' is not in the allowlist"
-        )
 
 
 # =============================================================================

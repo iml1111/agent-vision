@@ -11,14 +11,14 @@ from loguru import logger
 
 # Module-level dependencies (set during app initialization)
 _notion_client = None
-_allowlist_config = None
+_config = None
 
 
-def set_notion_dependencies(notion_client, allowlist_config):
-    """Set Notion client and allowlist config for tool use"""
-    global _notion_client, _allowlist_config
+def set_notion_dependencies(notion_client, config):
+    """Set Notion client and config for tool use"""
+    global _notion_client, _config
     _notion_client = notion_client
-    _allowlist_config = allowlist_config
+    _config = config
 
 
 @tool(
@@ -33,15 +33,15 @@ async def list_notion_resources(args: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         List of allowed Notion databases and pages
     """
-    if _allowlist_config is None:
+    if _config is None:
         return {
-            "content": [{"type": "text", "text": "Allowlist config not initialized"}],
+            "content": [{"type": "text", "text": "Config not initialized"}],
             "is_error": True
         }
 
     try:
-        databases = _allowlist_config.notion_databases
-        pages = _allowlist_config.notion_pages
+        databases = _config.notion_databases
+        pages = _config.notion_pages
 
         response_text = "Available Notion Resources:\n\n"
 
@@ -98,7 +98,7 @@ async def query_notion_database(args: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Query results from the database
     """
-    if _notion_client is None or _allowlist_config is None:
+    if _notion_client is None or _config is None:
         return {
             "content": [{"type": "text", "text": "Notion dependencies not initialized"}],
             "is_error": True
@@ -110,7 +110,7 @@ async def query_notion_database(args: Dict[str, Any]) -> Dict[str, Any]:
     page_size = min(args.get("page_size", 50), 100)
 
     # Allowlist check (server-side enforcement)
-    if not _allowlist_config.is_notion_database_allowed(database_id):
+    if not _config.is_notion_database_allowed(database_id):
         return {
             "content": [{"type": "text", "text": f"Access denied: Database {database_id} is not in the allowlist"}],
             "is_error": True
@@ -132,7 +132,7 @@ async def query_notion_database(args: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # Format results for response
-        db_info = _allowlist_config.get_notion_database_info(database_id)
+        db_info = _config.get_notion_database_info(database_id)
         db_name = db_info.database_name if db_info else database_id
 
         response_text = f"Query Results from {db_name} ({len(results)} items):\n\n"
@@ -184,7 +184,7 @@ async def get_notion_page(args: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Page content as text
     """
-    if _notion_client is None or _allowlist_config is None:
+    if _notion_client is None or _config is None:
         return {
             "content": [{"type": "text", "text": "Notion dependencies not initialized"}],
             "is_error": True
@@ -193,7 +193,7 @@ async def get_notion_page(args: Dict[str, Any]) -> Dict[str, Any]:
     page_id = args.get("page_id")
 
     # Allowlist check (server-side enforcement)
-    if not _allowlist_config.is_notion_page_allowed(page_id):
+    if not _config.is_notion_page_allowed(page_id):
         return {
             "content": [{"type": "text", "text": f"Access denied: Page {page_id} is not in the allowlist"}],
             "is_error": True
@@ -208,7 +208,7 @@ async def get_notion_page(args: Dict[str, Any]) -> Dict[str, Any]:
         blocks = content_result.get("blocks", [])
 
         # Format page info
-        page_info = _allowlist_config.get_notion_page_info(page_id)
+        page_info = _config.get_notion_page_info(page_id)
         page_name = page_info.page_name if page_info else page_id
 
         response_text = f"Page: {page_name}\n"

@@ -110,21 +110,6 @@ class MongoGrowthMemoryRepository(GrowthMemoryRepository):
         )
         return [GrowthMemoryEntity.from_dict(doc) for doc in docs]
 
-    async def get_by_tags(
-        self,
-        tags: List[str],
-        limit: int = 10
-    ) -> List[GrowthMemoryEntity]:
-        """Get memories by tags (OR logic)"""
-        projection = BaseMongoAdapter.entity_projection(GrowthMemoryEntity)
-        docs = await self._adapter.find_many(
-            {"tags": {"$in": tags}},
-            projection=projection,
-            limit=limit,
-            sort=[("created_at", -1)]
-        )
-        return [GrowthMemoryEntity.from_dict(doc) for doc in docs]
-
     async def delete(self, memory_id: str) -> bool:
         """Delete a growth memory"""
         try:

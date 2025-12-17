@@ -1,45 +1,41 @@
 """
 Agent Orchestration Service
 
-Main service for managing agent sessions and the Plan→Act→Observe→Critique→Decide loop.
+Conversational agent service for continuous dialogue-based growth analysis.
 """
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
+
 from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
-from adapters.mongodb.collections.agent_loop_adapter import AgentLoopAdapter
+from adapters.mongodb.collections.message_adapter import MessageAdapter
 from adapters.repositories.mongodb.agent_session import MongoAgentSessionRepository
-from adapters.repositories.mongodb.agent_loop import MongoAgentLoopRepository
+from adapters.repositories.mongodb.message import MongoMessageRepository
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.agent.client import GrowthAgentClient
 from domain.entities.agent_session import AgentSessionEntity
-from domain.entities.agent_loop import AgentLoopEntity
-from domain.value_objects.agent_enums import SessionStatus, LoopPhase, DecisionType
+from domain.entities.message import MessageEntity
+from domain.value_objects.agent_enums import SessionStatus, MessageRole
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
-    LoopLimitExceededError,
 )
-from .observation_service import ObservationService
 from .growth_memory_service import GrowthMemoryService
 
 
 class AgentOrchestrationService:
     """
-    Main orchestration service for growth agent sessions.
+    Conversational orchestration service for growth agent sessions.
 
-    Manages the complete lifecycle of agent sessions including:
-    - Session creation and status management
-    - Agent loop execution (Plan→Act→Observe→Critique→Decide)
-    - HITL (Human-in-the-Loop) handling
-    - Final decision storage
+    Manages continuous dialogue sessions where users can:
+    - Start conversations with goals
+    - Send messages and receive agent responses
+    - Archive sessions for later reference
     """
 
     def __init__(
         self,
         db_client: MongoDBClient,
-        embedding_client: OpenAIEmbeddingClient,
-        max_loop_count: int = 10
+        embedding_client: OpenAIEmbeddingClient
     ):
         """
         Initialize the orchestration service.
@@ -47,47 +43,32 @@ class AgentOrchestrationService:
         Args:
             db_client: MongoDB client for database access
             embedding_client: OpenAI client for embeddings
-            max_loop_count: Maximum loops per session
         """
         self._db_client = db_client
         self._embedding_client = embedding_client
-        self._max_loop_count = max_loop_count
 
         # Initialize repositories
         self._session_repo = MongoAgentSessionRepository(
             AgentSessionAdapter(db_client.db)
         )
-        self._loop_repo = MongoAgentLoopRepository(
-            AgentLoopAdapter(db_client.db)
+        self._message_repo = MongoMessageRepository(
+            MessageAdapter(db_client.db)
         )
 
         # Initialize services
-        self._observation_service = ObservationService(db_client)
         self._memory_service = GrowthMemoryService(db_client, embedding_client)
 
-    async def create_session(
-        self,
-        goal: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> AgentSessionEntity:
+    async def create_session(self) -> AgentSessionEntity:
         """
         Create a new agent session.
 
-        Args:
-            goal: The goal/objective for the agent
-            context: Optional additional context
+        Goal will be automatically set from the first message sent to the session.
 
         Returns:
             Created AgentSessionEntity
         """
-        # Create session entity
-        session = AgentSessionEntity.create(
-            goal=goal,
-            context=context or {},
-            max_loop_count=self._max_loop_count
-        )
+        session = AgentSessionEntity.create()
 
-        # Persist and return with ID
         session_id = await self._session_repo.create(session)
         return await self._session_repo.get_by_id(session_id)
 
@@ -114,7 +95,7 @@ class AgentOrchestrationService:
         session_id: str
     ) -> Dict[str, Any]:
         """
-        Get detailed session status.
+        Get session status.
 
         Args:
             session_id: Session ID
@@ -123,266 +104,211 @@ class AgentOrchestrationService:
             Dict with session status and details
         """
         session = await self.get_session(session_id)
-        observation_summary = await self._observation_service.get_session_summary(session_id)
+        message_count = await self._message_repo.count_by_session_id(session_id)
 
         return {
             "session_id": session.id,
+            "goal": session.goal,
             "status": session.status.value,
-            "current_loop_count": session.current_loop_count,
-            "max_loop_count": session.max_loop_count,
-            "hitl_request": session.hitl_request,
-            "final_decision": session.final_decision,
-            "error_message": session.error_message,
+            "message_count": message_count,
             "created_at": session.created_at.isoformat(),
             "updated_at": session.updated_at.isoformat() if session.updated_at else None,
-            "observation_summary": observation_summary
+            "archived_at": session.archived_at.isoformat() if session.archived_at else None,
+            "archive_reason": session.archive_reason
         }
 
     async def process_message(
         self,
         session_id: str,
-        content: Optional[str] = None
+        content: str
     ) -> Dict[str, Any]:
         """
-        Process a message for a session (starts or continues agent loop).
+        Process a user message and get agent response.
 
         Args:
             session_id: Session ID
-            content: Optional message content (for initial query)
+            content: Message content from user
 
         Returns:
-            Dict with processing result
+            Dict with agent response and metadata
         """
         session = await self.get_session(session_id)
 
         # Validate session state
-        if session.is_terminal():
+        if session.status == SessionStatus.ARCHIVED:
             raise InvalidSessionStateError(
-                f"Session {session_id} is in terminal state: {session.status.value}"
+                f"Session {session_id} is archived. Unarchive or create a new session."
             )
 
-        if session.status == SessionStatus.WAITING_HITL:
-            raise InvalidSessionStateError(
-                f"Session {session_id} is waiting for HITL response"
-            )
+        # Ensure session is active
+        if session.status == SessionStatus.PAUSED:
+            await self._session_repo.update_status(session_id, SessionStatus.ACTIVE)
 
-        # Update status to processing
-        await self._session_repo.update_status(session_id, SessionStatus.PROCESSING)
+        # Set goal from first message if not set
+        if not session.has_goal():
+            await self._session_repo.update_goal(session_id, content)
+            session = await self.get_session(session_id)
+
+        # Save user message
+        user_message = MessageEntity.create(
+            session_id=session_id,
+            role=MessageRole.USER,
+            content=content
+        )
+        await self._message_repo.create(user_message)
 
         try:
-            # Execute agent loop
-            result = await self._execute_agent_loop(session_id, content or session.goal)
+            # Load conversation context
+            recent_messages = await self._message_repo.get_recent_by_session_id(
+                session_id=session_id,
+                limit=20
+            )
+
+            # Build context for agent
+            conversation_context = self._build_conversation_context(
+                session=session,
+                messages=recent_messages
+            )
+
+            # Execute agent
+            async with GrowthAgentClient(max_turns=50) as client:
+                client.set_session_context({
+                    "session_id": session_id
+                })
+
+                result = await client.run_query(conversation_context)
+
+            # Save assistant response
+            assistant_message = MessageEntity.create(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=result.get("text_response", ""),
+                metadata={
+                    "tool_calls": result.get("tool_calls", []),
+                    "model": result.get("model"),
+                    "usage": result.get("usage")
+                }
+            )
+            await self._message_repo.create(assistant_message)
 
             return {
                 "session_id": session_id,
-                "status": result["status"],
-                "loop_count": result.get("loop_count", 0),
-                "decision_type": result.get("decision_type"),
-                "hitl_request": result.get("hitl_request"),
-                "final_decision": result.get("final_decision")
+                "role": MessageRole.ASSISTANT.value,
+                "content": result.get("text_response", ""),
+                "tool_calls": result.get("tool_calls", []),
+                "created_at": assistant_message.created_at.isoformat()
             }
 
         except Exception as e:
-            # Mark session as failed
-            await self._session_repo.update_status(
-                session_id,
-                SessionStatus.FAILED,
-                error_message=str(e)
+            # Save error as system message
+            error_message = MessageEntity.create(
+                session_id=session_id,
+                role=MessageRole.SYSTEM,
+                content=f"Error processing message: {str(e)}",
+                metadata={"error": True, "error_type": type(e).__name__}
             )
+            await self._message_repo.create(error_message)
             raise
 
-    async def submit_hitl_response(
+    def _build_conversation_context(
+        self,
+        session: AgentSessionEntity,
+        messages: List[MessageEntity]
+    ) -> str:
+        """
+        Build conversation context for agent.
+
+        Args:
+            session: Current session entity
+            messages: Recent messages (chronological order)
+
+        Returns:
+            Formatted context string for agent
+        """
+        context_parts = []
+
+        if session.goal:
+            context_parts.append(f"Goal: {session.goal}")
+            context_parts.append("")
+
+        if session.context:
+            context_parts.append("Session Context:")
+            for key, value in session.context.items():
+                context_parts.append(f"  {key}: {value}")
+            context_parts.append("")
+
+        if messages:
+            context_parts.append("Conversation History:")
+            for msg in messages:
+                role_label = msg.role.value.upper()
+                context_parts.append(f"[{role_label}]: {msg.content}")
+            context_parts.append("")
+
+        return "\n".join(context_parts)
+
+    async def get_messages(
         self,
         session_id: str,
-        decision: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[MessageEntity]:
         """
-        Submit a HITL response and resume processing.
+        Get conversation messages for a session.
 
         Args:
             session_id: Session ID
-            decision: HITL decision/response
+            limit: Maximum number of messages to return
+            offset: Number of messages to skip
 
         Returns:
-            Dict with processing result
+            List of MessageEntity ordered by created_at ascending
         """
-        session = await self.get_session(session_id)
+        await self.get_session(session_id)
 
-        # Validate session state
-        if session.status != SessionStatus.WAITING_HITL:
-            raise InvalidSessionStateError(
-                f"Session {session_id} is not waiting for HITL response"
-            )
-
-        # Record HITL response as observation
-        await self._observation_service.record_hitl_response(
+        return await self._message_repo.get_by_session_id(
             session_id=session_id,
-            loop_id=None,
-            response=decision
+            limit=limit,
+            offset=offset
         )
 
-        # Clear HITL request and continue processing
-        await self._session_repo.clear_hitl_request(session_id)
-
-        # Continue processing with HITL response context
-        return await self.process_message(session_id, f"HITL Response: {decision}")
-
-    async def _execute_agent_loop(
+    async def archive_session(
         self,
         session_id: str,
-        prompt: str
-    ) -> Dict[str, Any]:
+        reason: Optional[str] = None
+    ) -> bool:
         """
-        Execute the agent loop.
-
-        This is a simplified implementation that runs the Claude agent
-        and interprets the results for the Plan→Act→Observe→Critique→Decide flow.
-        """
-        session = await self.get_session(session_id)
-
-        # Check loop limit
-        if session.current_loop_count >= session.max_loop_count:
-            raise LoopLimitExceededError(
-                f"Session {session_id} has reached max loop count ({session.max_loop_count})"
-            )
-
-        # Create new loop record
-        loop = AgentLoopEntity.create(
-            session_id=session_id,
-            iteration=session.current_loop_count
-        )
-        loop_id = await self._loop_repo.create(loop)
-
-        # Increment loop count
-        await self._session_repo.increment_loop_count(session_id)
-
-        try:
-            # Execute Claude agent
-            async with GrowthAgentClient(max_turns=50) as client:
-                client.set_session_context({
-                    "session_id": session_id,
-                    "loop_id": loop_id
-                })
-
-                result = await client.run_query(prompt)
-
-            # Analyze agent response to determine decision
-            decision_type, decision_data = self._analyze_agent_response(result)
-
-            # Handle different decision types
-            if decision_type == DecisionType.HITL_QUESTION:
-                # Set HITL request and update status
-                await self._session_repo.set_hitl_request(session_id, decision_data)
-                return {
-                    "status": SessionStatus.WAITING_HITL.value,
-                    "loop_count": session.current_loop_count + 1,
-                    "decision_type": decision_type.value,
-                    "hitl_request": decision_data
-                }
-
-            elif decision_type == DecisionType.CONTINUE:
-                # Need to continue processing
-                return {
-                    "status": SessionStatus.PROCESSING.value,
-                    "loop_count": session.current_loop_count + 1,
-                    "decision_type": decision_type.value
-                }
-
-            else:
-                # Final decision (EXPERIMENT or INSTRUMENTATION_TODO)
-                await self._session_repo.set_final_decision(session_id, decision_data)
-                return {
-                    "status": SessionStatus.COMPLETED.value,
-                    "loop_count": session.current_loop_count + 1,
-                    "decision_type": decision_type.value,
-                    "final_decision": decision_data
-                }
-
-        except Exception as e:
-            # Record error
-            await self._observation_service.record_error(
-                session_id=session_id,
-                loop_id=loop_id,
-                error_message=str(e)
-            )
-            raise
-
-    def _analyze_agent_response(
-        self,
-        result: Dict[str, Any]
-    ) -> tuple[DecisionType, Dict[str, Any]]:
-        """
-        Analyze agent response to determine decision type.
-
-        This is a simplified heuristic-based analysis.
-        In production, this could use structured outputs or additional LLM calls.
-        """
-        text_response = result.get("text_response", "").lower()
-
-        # Check for HITL indicators
-        hitl_indicators = [
-            "need your input",
-            "please confirm",
-            "which option",
-            "what do you think",
-            "would you like",
-            "should i proceed"
-        ]
-        if any(indicator in text_response for indicator in hitl_indicators):
-            return DecisionType.HITL_QUESTION, {
-                "question": result.get("text_response", ""),
-                "context": "Agent is requesting human input"
-            }
-
-        # Check for experiment recommendation
-        experiment_indicators = [
-            "recommend testing",
-            "suggest an experiment",
-            "a/b test",
-            "hypothesis",
-            "expected impact"
-        ]
-        if any(indicator in text_response for indicator in experiment_indicators):
-            return DecisionType.EXPERIMENT, {
-                "recommendation": result.get("text_response", ""),
-                "tool_calls": result.get("tool_calls", [])
-            }
-
-        # Check for instrumentation TODO
-        instrumentation_indicators = [
-            "need to track",
-            "add tracking",
-            "instrument",
-            "missing data",
-            "event tracking"
-        ]
-        if any(indicator in text_response for indicator in instrumentation_indicators):
-            return DecisionType.INSTRUMENTATION_TODO, {
-                "recommendation": result.get("text_response", ""),
-                "tool_calls": result.get("tool_calls", [])
-            }
-
-        # Default to continue if no clear decision
-        return DecisionType.CONTINUE, {}
-
-    async def cancel_session(self, session_id: str) -> bool:
-        """
-        Cancel an active session.
+        Archive a session.
 
         Args:
-            session_id: Session ID to cancel
+            session_id: Session ID to archive
+            reason: Optional archive reason
 
         Returns:
-            True if cancelled successfully
+            True if archived successfully
         """
         session = await self.get_session(session_id)
 
-        if session.is_terminal():
+        if session.status == SessionStatus.ARCHIVED:
             raise InvalidSessionStateError(
-                f"Cannot cancel session in terminal state: {session.status.value}"
+                f"Session {session_id} is already archived"
             )
 
-        return await self._session_repo.update_status(
-            session_id,
-            SessionStatus.CANCELLED
-        )
+        return await self._session_repo.archive_session(session_id, reason)
+
+    async def delete_session(self, session_id: str) -> bool:
+        """
+        Delete a session and all its messages.
+
+        Args:
+            session_id: Session ID to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        await self.get_session(session_id)
+
+        # Delete all messages first
+        await self._message_repo.delete_by_session_id(session_id)
+
+        # Delete session
+        return await self._session_repo.delete(session_id)

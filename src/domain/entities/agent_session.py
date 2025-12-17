@@ -1,60 +1,45 @@
 """Agent Session Domain Entity"""
 from dataclasses import dataclass, fields as get_fields
-from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
-from .base import BaseEntity
+from typing import Any, Dict, Optional
+
 from domain.value_objects.agent_enums import SessionStatus
+
+from .base import BaseEntity
 
 
 @dataclass(eq=False, frozen=True)
 class AgentSessionEntity(BaseEntity):
     """
-    Agent session domain entity
+    Agent session domain entity (conversational model)
 
-    Represents a single agent session lifecycle with:
-    - Goal and context for the agent
-    - Status tracking (state machine)
-    - Loop count management
-    - HITL (Human-in-the-Loop) support
-    - Final decision storage
+    Represents a continuous conversation session with:
+    - Goal set from first message (optional until first message)
+    - Simple status tracking (ACTIVE, PAUSED, ARCHIVED)
+    - No loop limits or workflow constraints
     """
 
-    goal: str
-    context: Dict[str, Any]
     status: SessionStatus
-    current_loop_count: int
-    max_loop_count: int
     created_at: datetime
     id: Optional[str] = None
+    goal: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
     updated_at: Optional[datetime] = None
-    hitl_request: Optional[Dict[str, Any]] = None
-    final_decision: Optional[Dict[str, Any]] = None
-    error_message: Optional[str] = None
+    archived_at: Optional[datetime] = None
+    archive_reason: Optional[str] = None
 
     @classmethod
-    def create(
-        cls,
-        goal: str,
-        context: Optional[Dict[str, Any]] = None,
-        max_loop_count: int = 10
-    ) -> "AgentSessionEntity":
+    def create(cls) -> "AgentSessionEntity":
         """
         Factory method for creating new AgentSessionEntity
 
-        Args:
-            goal: The goal/objective for the agent
-            context: Additional context for the agent
-            max_loop_count: Maximum number of loops allowed
+        Goal will be set from the first message.
 
         Returns:
             New AgentSessionEntity instance
         """
         return cls(
-            goal=goal,
-            context=context or {},
-            status=SessionStatus.CREATED,
-            current_loop_count=0,
-            max_loop_count=max_loop_count,
+            status=SessionStatus.ACTIVE,
             created_at=datetime.now(timezone.utc)
         )
 
@@ -69,7 +54,7 @@ class AgentSessionEntity(BaseEntity):
             data["id"] = str(data.pop("_id"))
 
         # Validate required fields
-        required_fields = ["goal", "context", "status", "current_loop_count", "max_loop_count", "created_at"]
+        required_fields = ["status", "created_at"]
         for field in required_fields:
             if field not in data:
                 raise ValueError(f"Field '{field}' is required")
@@ -83,7 +68,7 @@ class AgentSessionEntity(BaseEntity):
             entity_data["status"] = SessionStatus(entity_data["status"])
 
         # Convert timestamp string to UTC datetime
-        for field in ["created_at", "updated_at"]:
+        for field in ["created_at", "updated_at", "archived_at"]:
             if field in entity_data and entity_data[field] is not None:
                 if isinstance(entity_data[field], str):
                     entity_data[field] = datetime.fromisoformat(entity_data[field])
@@ -95,20 +80,16 @@ class AgentSessionEntity(BaseEntity):
 
     def validate(self) -> None:
         """Validate entity business rules"""
-        if not isinstance(self.goal, str) or not self.goal.strip():
-            raise ValueError("Field 'goal' must be a non-empty string")
+        # goal is optional (set from first message)
+        if self.goal is not None and not isinstance(self.goal, str):
+            raise ValueError("Field 'goal' must be a string if provided")
 
-        if not isinstance(self.context, dict):
-            raise ValueError("Field 'context' must be a dict")
+        # context is optional
+        if self.context is not None and not isinstance(self.context, dict):
+            raise ValueError("Field 'context' must be a dict if provided")
 
         if not isinstance(self.status, SessionStatus):
             raise ValueError("Field 'status' must be a SessionStatus enum")
-
-        if not isinstance(self.current_loop_count, int) or self.current_loop_count < 0:
-            raise ValueError("Field 'current_loop_count' must be a non-negative integer")
-
-        if not isinstance(self.max_loop_count, int) or self.max_loop_count <= 0:
-            raise ValueError("Field 'max_loop_count' must be a positive integer")
 
         if not isinstance(self.created_at, datetime):
             raise ValueError("Field 'created_at' must be a datetime object")
@@ -134,13 +115,14 @@ class AgentSessionEntity(BaseEntity):
             result["status"] = result["status"].value
         return result
 
-    def is_terminal(self) -> bool:
-        """Check if session is in a terminal state"""
-        return self.status in [SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED]
+    def is_active(self) -> bool:
+        """Check if session is active for conversation"""
+        return self.status == SessionStatus.ACTIVE
 
-    def can_continue(self) -> bool:
-        """Check if session can continue processing"""
-        return (
-            self.status == SessionStatus.PROCESSING
-            and self.current_loop_count < self.max_loop_count
-        )
+    def is_archived(self) -> bool:
+        """Check if session is archived"""
+        return self.status == SessionStatus.ARCHIVED
+
+    def has_goal(self) -> bool:
+        """Check if session has a goal set (first message received)"""
+        return self.goal is not None and len(self.goal.strip()) > 0

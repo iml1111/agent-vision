@@ -11,14 +11,14 @@ from loguru import logger
 
 # Module-level dependencies (set during app initialization)
 _slack_client = None
-_allowlist_config = None
+_config = None
 
 
-def set_slack_dependencies(slack_client, allowlist_config):
-    """Set Slack client and allowlist config for tool use"""
-    global _slack_client, _allowlist_config
+def set_slack_dependencies(slack_client, config):
+    """Set Slack client and config for tool use"""
+    global _slack_client, _config
     _slack_client = slack_client
-    _allowlist_config = allowlist_config
+    _config = config
 
 
 @tool(
@@ -33,14 +33,14 @@ async def list_slack_channels(args: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         List of allowed Slack channels with their IDs and descriptions
     """
-    if _allowlist_config is None:
+    if _config is None:
         return {
-            "content": [{"type": "text", "text": "Allowlist config not initialized"}],
+            "content": [{"type": "text", "text": "Config not initialized"}],
             "is_error": True
         }
 
     try:
-        channels = _allowlist_config.slack_channels
+        channels = _config.slack_channels
 
         if not channels:
             return {
@@ -87,7 +87,7 @@ async def get_slack_messages(args: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Messages from the channel
     """
-    if _slack_client is None or _allowlist_config is None:
+    if _slack_client is None or _config is None:
         return {
             "content": [{"type": "text", "text": "Slack dependencies not initialized"}],
             "is_error": True
@@ -99,7 +99,7 @@ async def get_slack_messages(args: Dict[str, Any]) -> Dict[str, Any]:
     latest = args.get("latest")
 
     # Allowlist check (server-side enforcement)
-    if not _allowlist_config.is_slack_channel_allowed(channel_id):
+    if not _config.is_slack_channel_allowed(channel_id):
         return {
             "content": [{"type": "text", "text": f"Access denied: Channel {channel_id} is not in the allowlist"}],
             "is_error": True
@@ -121,7 +121,7 @@ async def get_slack_messages(args: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # Format messages for response
-        channel_info = _allowlist_config.get_slack_channel_info(channel_id)
+        channel_info = _config.get_slack_channel_info(channel_id)
         channel_name = channel_info.channel_name if channel_info else channel_id
 
         response_text = f"Messages from #{channel_name} ({len(messages)} messages):\n\n"

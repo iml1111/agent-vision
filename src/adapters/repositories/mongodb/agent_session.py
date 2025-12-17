@@ -1,8 +1,10 @@
 """MongoDB Agent Session Repository Implementation"""
-from typing import Optional, List
 from datetime import datetime, timezone
+from typing import List, Optional
+
 from bson import ObjectId
 from loguru import logger
+
 from adapters.mongodb.base import BaseMongoAdapter
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
 from domain.entities.agent_session import AgentSessionEntity
@@ -11,7 +13,7 @@ from domain.value_objects.agent_enums import SessionStatus
 
 
 class MongoAgentSessionRepository(AgentSessionRepository):
-    """MongoDB implementation of AgentSessionRepository"""
+    """MongoDB implementation of AgentSessionRepository (conversational model)"""
 
     def __init__(self, adapter: AgentSessionAdapter):
         self._adapter = adapter
@@ -43,8 +45,7 @@ class MongoAgentSessionRepository(AgentSessionRepository):
     async def update_status(
         self,
         session_id: str,
-        status: SessionStatus,
-        error_message: Optional[str] = None
+        status: SessionStatus
     ) -> bool:
         """Update session status"""
         update_doc = {
@@ -53,8 +54,6 @@ class MongoAgentSessionRepository(AgentSessionRepository):
                 "updated_at": datetime.now(timezone.utc)
             }
         }
-        if error_message is not None:
-            update_doc["$set"]["error_message"] = error_message
 
         try:
             result = await self._adapter.update_one(
@@ -66,81 +65,54 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             logger.error(f"Failed to update status for session_id '{session_id}': {e}")
             return False
 
-    async def increment_loop_count(self, session_id: str) -> bool:
-        """Increment the current loop count"""
-        try:
-            result = await self._adapter.update_one(
-                {"_id": ObjectId(session_id)},
-                {
-                    "$inc": {"current_loop_count": 1},
-                    "$set": {"updated_at": datetime.now(timezone.utc)}
-                }
-            )
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"Failed to increment loop count for session_id '{session_id}': {e}")
-            return False
-
-    async def set_hitl_request(
+    async def update_goal(
         self,
         session_id: str,
-        hitl_request: dict
+        goal: str
     ) -> bool:
-        """Set HITL request and update status to WAITING_HITL"""
+        """Update session goal (set from first message)"""
+        update_doc = {
+            "$set": {
+                "goal": goal,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+
         try:
             result = await self._adapter.update_one(
                 {"_id": ObjectId(session_id)},
-                {
-                    "$set": {
-                        "hitl_request": hitl_request,
-                        "status": SessionStatus.WAITING_HITL.value,
-                        "updated_at": datetime.now(timezone.utc)
-                    }
-                }
+                update_doc
             )
             return result.modified_count > 0
         except Exception as e:
-            logger.error(f"Failed to set HITL request for session_id '{session_id}': {e}")
+            logger.error(f"Failed to update goal for session_id '{session_id}': {e}")
             return False
 
-    async def clear_hitl_request(self, session_id: str) -> bool:
-        """Clear HITL request after response received"""
-        try:
-            result = await self._adapter.update_one(
-                {"_id": ObjectId(session_id)},
-                {
-                    "$set": {
-                        "hitl_request": None,
-                        "status": SessionStatus.PROCESSING.value,
-                        "updated_at": datetime.now(timezone.utc)
-                    }
-                }
-            )
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"Failed to clear HITL request for session_id '{session_id}': {e}")
-            return False
-
-    async def set_final_decision(
+    async def archive_session(
         self,
         session_id: str,
-        final_decision: dict
+        reason: Optional[str] = None
     ) -> bool:
-        """Set final decision and mark session as COMPLETED"""
+        """Archive a session"""
+        now = datetime.now(timezone.utc)
+        update_doc = {
+            "$set": {
+                "status": SessionStatus.ARCHIVED.value,
+                "archived_at": now,
+                "updated_at": now
+            }
+        }
+        if reason:
+            update_doc["$set"]["archive_reason"] = reason
+
         try:
             result = await self._adapter.update_one(
                 {"_id": ObjectId(session_id)},
-                {
-                    "$set": {
-                        "final_decision": final_decision,
-                        "status": SessionStatus.COMPLETED.value,
-                        "updated_at": datetime.now(timezone.utc)
-                    }
-                }
+                update_doc
             )
             return result.modified_count > 0
         except Exception as e:
-            logger.error(f"Failed to set final decision for session_id '{session_id}': {e}")
+            logger.error(f"Failed to archive session_id '{session_id}': {e}")
             return False
 
     async def get_by_status(
@@ -157,3 +129,12 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             sort=[("created_at", -1)]
         )
         return [AgentSessionEntity.from_dict(doc) for doc in docs]
+
+    async def delete(self, session_id: str) -> bool:
+        """Delete a session"""
+        try:
+            result = await self._adapter.delete_one({"_id": ObjectId(session_id)})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Failed to delete session_id '{session_id}': {e}")
+            return False

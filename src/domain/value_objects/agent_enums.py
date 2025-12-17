@@ -3,39 +3,17 @@ from enum import Enum
 
 
 class SessionStatus(str, Enum):
-    """Agent session status enumeration"""
-    CREATED = "created"
-    PROCESSING = "processing"
-    WAITING_HITL = "waiting_hitl"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+    """Agent session status enumeration (conversational model)"""
+    ACTIVE = "active"       # 대화 진행 중
+    PAUSED = "paused"       # 일시 중지
+    ARCHIVED = "archived"   # 보관됨 (다시 활성화 가능)
 
 
-class LoopPhase(str, Enum):
-    """Agent loop phase enumeration (Plan→Act→Observe→Critique→Decide)"""
-    PLAN = "plan"
-    ACT = "act"
-    OBSERVE = "observe"
-    CRITIQUE = "critique"
-    DECIDE = "decide"
-
-
-class ObservationType(str, Enum):
-    """Observation type enumeration"""
-    TOOL_RESULT = "tool_result"
-    CONTEXT = "context"
-    ERROR = "error"
-    HITL_RESPONSE = "hitl_response"
-    RAG_RETRIEVAL = "rag_retrieval"
-
-
-class DecisionType(str, Enum):
-    """Decision type enumeration"""
-    EXPERIMENT = "experiment"
-    HITL_QUESTION = "hitl_question"
-    INSTRUMENTATION_TODO = "instrumentation_todo"
-    CONTINUE = "continue"
+class MessageRole(str, Enum):
+    """Message role enumeration"""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
 
 
 class GrowthMemoryType(str, Enum):

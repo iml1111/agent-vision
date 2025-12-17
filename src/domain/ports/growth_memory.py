@@ -98,24 +98,6 @@ class GrowthMemoryRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_by_tags(
-        self,
-        tags: List[str],
-        limit: int = 10
-    ) -> List[GrowthMemoryEntity]:
-        """
-        Get memories by tags
-
-        Args:
-            tags: Tags to filter by (OR logic)
-            limit: Maximum number of memories to return
-
-        Returns:
-            List of GrowthMemoryEntity
-        """
-        pass
-
-    @abstractmethod
     async def delete(self, memory_id: str) -> bool:
         """
         Delete a growth memory

@@ -1,62 +1,62 @@
-"""Observation Domain Entity"""
+"""Message Domain Entity"""
 from dataclasses import dataclass, fields as get_fields
-from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from domain.value_objects.agent_enums import MessageRole
+
 from .base import BaseEntity
-from domain.value_objects.agent_enums import ObservationType
 
 
 @dataclass(eq=False, frozen=True)
-class ObservationEntity(BaseEntity):
+class MessageEntity(BaseEntity):
     """
-    Observation domain entity
+    Message domain entity
 
-    Represents ephemeral observations during agent execution:
-    - Tool results, context updates, errors
-    - HITL responses, RAG retrieval results
-    - Short-term memory within a session
+    Represents a single message in an agent conversation session.
+    Replaces the previous Observation entity with a unified message model.
+
+    Attributes:
+        session_id: Parent session ID
+        role: Message role (user, assistant, system)
+        content: Message text content
+        metadata: Optional metadata (tool_calls, errors, rag_results, etc.)
+        created_at: Message creation timestamp
+        id: MongoDB document ID
     """
 
     session_id: str
-    observation_type: ObservationType
-    content: Dict[str, Any]
+    role: MessageRole
+    content: str
     created_at: datetime
     id: Optional[str] = None
-    loop_id: Optional[str] = None
-    tool_name: Optional[str] = None
-    is_error: bool = False
+    metadata: Optional[Dict[str, Any]] = None
 
     @classmethod
     def create(
         cls,
         session_id: str,
-        observation_type: ObservationType,
-        content: Dict[str, Any],
-        loop_id: Optional[str] = None,
-        tool_name: Optional[str] = None,
-        is_error: bool = False
-    ) -> "ObservationEntity":
+        role: MessageRole,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> "MessageEntity":
         """
-        Factory method for creating new ObservationEntity
+        Factory method for creating new MessageEntity
 
         Args:
             session_id: Parent session ID
-            observation_type: Type of observation
-            content: Observation content/data
-            loop_id: Optional parent loop ID
-            tool_name: Optional tool that generated this observation
-            is_error: Whether this is an error observation
+            role: Message role
+            content: Message text content
+            metadata: Optional metadata
 
         Returns:
-            New ObservationEntity instance
+            New MessageEntity instance
         """
         return cls(
             session_id=session_id,
-            observation_type=observation_type,
+            role=role,
             content=content,
-            loop_id=loop_id,
-            tool_name=tool_name,
-            is_error=is_error,
+            metadata=metadata,
             created_at=datetime.now(timezone.utc)
         )
 
@@ -64,14 +64,14 @@ class ObservationEntity(BaseEntity):
         self.validate()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ObservationEntity":
+    def from_dict(cls, data: Dict[str, Any]) -> "MessageEntity":
         """Create entity from dictionary (MongoDB document)"""
         if "_id" in data:
             data = {**data}
             data["id"] = str(data.pop("_id"))
 
         # Validate required fields
-        required_fields = ["session_id", "observation_type", "content", "created_at"]
+        required_fields = ["session_id", "role", "content", "created_at"]
         for field in required_fields:
             if field not in data:
                 raise ValueError(f"Field '{field}' is required")
@@ -80,9 +80,9 @@ class ObservationEntity(BaseEntity):
         known_fields = {f.name for f in get_fields(cls)}
         entity_data = {k: v for k, v in data.items() if k in known_fields}
 
-        # Convert observation_type string to Enum
-        if "observation_type" in entity_data and isinstance(entity_data["observation_type"], str):
-            entity_data["observation_type"] = ObservationType(entity_data["observation_type"])
+        # Convert role string to Enum
+        if "role" in entity_data and isinstance(entity_data["role"], str):
+            entity_data["role"] = MessageRole(entity_data["role"])
 
         # Convert timestamp string to UTC datetime
         if "created_at" in entity_data and entity_data["created_at"] is not None:
@@ -99,21 +99,21 @@ class ObservationEntity(BaseEntity):
         if not isinstance(self.session_id, str) or not self.session_id.strip():
             raise ValueError("Field 'session_id' must be a non-empty string")
 
-        if not isinstance(self.observation_type, ObservationType):
-            raise ValueError("Field 'observation_type' must be an ObservationType enum")
+        if not isinstance(self.role, MessageRole):
+            raise ValueError("Field 'role' must be a MessageRole enum")
 
-        if not isinstance(self.content, dict):
-            raise ValueError("Field 'content' must be a dict")
+        if not isinstance(self.content, str):
+            raise ValueError("Field 'content' must be a string")
 
         if not isinstance(self.created_at, datetime):
             raise ValueError("Field 'created_at' must be a datetime object")
 
-        if not isinstance(self.is_error, bool):
-            raise ValueError("Field 'is_error' must be a boolean")
+        if self.metadata is not None and not isinstance(self.metadata, dict):
+            raise ValueError("Field 'metadata' must be a dict or None")
 
     def __eq__(self, other: object) -> bool:
         """Identity-based equality"""
-        if not isinstance(other, ObservationEntity):
+        if not isinstance(other, MessageEntity):
             return False
         if self.id is None or other.id is None:
             return False
@@ -122,12 +122,12 @@ class ObservationEntity(BaseEntity):
     def __hash__(self) -> int:
         """Identity-based hash"""
         if self.id is None:
-            raise TypeError("Cannot hash ObservationEntity without id")
+            raise TypeError("Cannot hash MessageEntity without id")
         return hash(self.id)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert entity to dict with enum serialization"""
         result = super().to_dict()
-        if isinstance(result.get("observation_type"), ObservationType):
-            result["observation_type"] = result["observation_type"].value
+        if isinstance(result.get("role"), MessageRole):
+            result["role"] = result["role"].value
         return result

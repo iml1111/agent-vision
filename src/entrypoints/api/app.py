@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from loguru import logger
 from config import Config
-from config.allowlist import AllowlistConfig
 from adapters.mongodb.client import MongoDBClient
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.external.slack_client import SlackClient
@@ -25,10 +24,10 @@ async def lifespan(app: FastAPI):
     Initializes heavyweight resources once at startup:
     - MongoDBClient with connection pool (Lifespan Singleton Pattern)
     - OpenAI Embedding Client
-    - Allowlist Configuration
     - External clients (Slack, Notion) - optional
 
     Resources are shared across all requests for efficiency.
+    Note: Allowlist configuration is now integrated into Config.
     """
     config = app.state.config
 
@@ -47,13 +46,12 @@ async def lifespan(app: FastAPI):
     )
     logger.info("OpenAI Embedding Client initialized")
 
-    # Initialize Allowlist Configuration
-    app.state.allowlist_config = AllowlistConfig()
+    # Log Allowlist Configuration (integrated into Config)
     logger.info(
         f"Allowlist initialized: "
-        f"{len(app.state.allowlist_config.slack_channels)} Slack channels, "
-        f"{len(app.state.allowlist_config.notion_databases)} Notion databases, "
-        f"{len(app.state.allowlist_config.notion_pages)} Notion pages"
+        f"{len(config.slack_channels)} Slack channels, "
+        f"{len(config.notion_databases)} Notion databases, "
+        f"{len(config.notion_pages)} Notion pages"
     )
 
     # Initialize External Clients (optional based on config)
@@ -84,21 +82,19 @@ def _initialize_agent_tool_dependencies(app: FastAPI):
     from adapters.agent_tools.notion_tool import set_notion_dependencies
     from adapters.agent_tools.growth_memory_tool import set_growth_memory_dependencies
     from adapters.agent_hooks.pre_tool_use import set_hook_dependencies
-    from adapters.agent_hooks.post_tool_use import set_observation_callback
     from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
     from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
-    from service_layer.application.observation_service import ObservationService
 
     # Set Slack tool dependencies
     set_slack_dependencies(
         slack_client=app.state.slack_client,
-        allowlist_config=app.state.allowlist_config
+        config=app.state.config
     )
 
     # Set Notion tool dependencies
     set_notion_dependencies(
         notion_client=app.state.notion_client,
-        allowlist_config=app.state.allowlist_config
+        config=app.state.config
     )
 
     # Set Growth Memory tool dependencies
@@ -111,21 +107,7 @@ def _initialize_agent_tool_dependencies(app: FastAPI):
     )
 
     # Set hook dependencies
-    set_hook_dependencies(allowlist_config=app.state.allowlist_config)
-
-    # Set observation callback for PostToolUse hook
-    observation_service = ObservationService(app.state.db_client)
-
-    async def observation_callback(session_id, loop_id, tool_name, result, is_error):
-        await observation_service.record_tool_result(
-            session_id=session_id,
-            loop_id=loop_id,
-            tool_name=tool_name,
-            result=result if isinstance(result, dict) else {"raw": str(result)},
-            is_error=is_error
-        )
-
-    set_observation_callback(observation_callback)
+    set_hook_dependencies(config=app.state.config)
 
     logger.info("Agent tool dependencies initialized")
 

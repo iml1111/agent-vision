@@ -1,16 +1,12 @@
 """Domain Value Objects"""
 from .agent_enums import (
     SessionStatus,
-    LoopPhase,
-    ObservationType,
-    DecisionType,
+    MessageRole,
     GrowthMemoryType,
 )
 
 __all__ = [
     "SessionStatus",
-    "LoopPhase",
-    "ObservationType",
-    "DecisionType",
+    "MessageRole",
     "GrowthMemoryType",
 ]

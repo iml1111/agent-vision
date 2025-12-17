@@ -9,14 +9,14 @@ from loguru import logger
 
 
 # Module-level dependencies (set during app initialization)
-_allowlist_config = None
+_config = None
 _session_context = {}  # Stores session-specific context
 
 
-def set_hook_dependencies(allowlist_config):
-    """Set dependencies for hooks"""
-    global _allowlist_config
-    _allowlist_config = allowlist_config
+def set_hook_dependencies(config):
+    """Set dependencies for hooks (config includes allowlist functionality)"""
+    global _config
+    _config = config
 
 
 def set_session_context(session_id: str, context: Dict[str, Any]):
@@ -57,17 +57,17 @@ async def validate_slack_allowlist(
     if not channel_id:
         return {}
 
-    if _allowlist_config is None:
-        logger.warning("Allowlist config not initialized, denying Slack access")
+    if _config is None:
+        logger.warning("Config not initialized, denying Slack access")
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": "Allowlist configuration not available"
+                "permissionDecisionReason": "Config not available"
             }
         }
 
-    if not _allowlist_config.is_slack_channel_allowed(channel_id):
+    if not _config.is_slack_channel_allowed(channel_id):
         logger.warning(f"Slack channel access denied: {channel_id}")
         return {
             "hookSpecificOutput": {
@@ -101,19 +101,19 @@ async def validate_notion_allowlist(
     database_id = tool_input.get("database_id")
     page_id = tool_input.get("page_id")
 
-    if _allowlist_config is None:
-        logger.warning("Allowlist config not initialized, denying Notion access")
+    if _config is None:
+        logger.warning("Config not initialized, denying Notion access")
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": "Allowlist configuration not available"
+                "permissionDecisionReason": "Config not available"
             }
         }
 
     # Check database access
     if database_id:
-        if not _allowlist_config.is_notion_database_allowed(database_id):
+        if not _config.is_notion_database_allowed(database_id):
             logger.warning(f"Notion database access denied: {database_id}")
             return {
                 "hookSpecificOutput": {
@@ -125,7 +125,7 @@ async def validate_notion_allowlist(
 
     # Check page access
     if page_id:
-        if not _allowlist_config.is_notion_page_allowed(page_id):
+        if not _config.is_notion_page_allowed(page_id):
             logger.warning(f"Notion page access denied: {page_id}")
             return {
                 "hookSpecificOutput": {

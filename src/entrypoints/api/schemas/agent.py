@@ -1,7 +1,7 @@
 """
 Agent API Schemas
 
-Request/Response schemas for agent endpoints.
+Request/Response schemas for conversational agent endpoints.
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -14,21 +14,16 @@ from pydantic import BaseModel, Field
 
 
 class SessionCreateRequest(BaseModel):
-    """Request schema for creating a new agent session"""
-    goal: str = Field(..., min_length=1, max_length=2000, description="The goal/objective for the agent")
-    context: Optional[Dict[str, Any]] = Field(None, description="Optional additional context")
+    """Request schema for creating a new agent session (empty body allowed)"""
 
     model_config = {"json_schema_extra": {
-        "example": {
-            "goal": "Analyze user retention for the past 30 days and suggest improvements",
-            "context": {"product_area": "onboarding", "target_metric": "d7_retention"}
-        }
+        "example": {}
     }}
 
 
 class MessageRequest(BaseModel):
     """Request schema for sending a message to a session"""
-    content: Optional[str] = Field(None, max_length=5000, description="Optional message content")
+    content: str = Field(..., min_length=1, max_length=10000, description="Message content")
 
     model_config = {"json_schema_extra": {
         "example": {
@@ -37,17 +32,13 @@ class MessageRequest(BaseModel):
     }}
 
 
-class HITLRequest(BaseModel):
-    """Request schema for submitting HITL response"""
-    decision: Dict[str, Any] = Field(..., description="HITL decision/response")
+class ArchiveRequest(BaseModel):
+    """Request schema for archiving a session"""
+    reason: Optional[str] = Field(None, max_length=500, description="Optional archive reason")
 
     model_config = {"json_schema_extra": {
         "example": {
-            "decision": {
-                "choice": "option_a",
-                "reason": "We want to focus on new user onboarding first",
-                "additional_context": "Budget is limited for Q1"
-            }
+            "reason": "Analysis complete, moving to implementation phase"
         }
     }}
 
@@ -61,119 +52,118 @@ class SessionCreateResponse(BaseModel):
     """Response schema for session creation"""
     session_id: str
     status: str
-    goal: str
+    goal: Optional[str] = None
     created_at: datetime
 
     model_config = {"json_schema_extra": {
         "example": {
             "session_id": "507f1f77bcf86cd799439011",
-            "status": "created",
-            "goal": "Analyze user retention for the past 30 days",
+            "status": "active",
+            "goal": None,
             "created_at": "2025-01-15T10:30:00Z"
         }
     }}
 
 
 class MessageResponse(BaseModel):
-    """Response schema for message processing"""
+    """Response schema for message processing (agent response)"""
     session_id: str
-    status: str
-    loop_count: int
-    decision_type: Optional[str] = None
-    hitl_request: Optional[Dict[str, Any]] = None
-    final_decision: Optional[Dict[str, Any]] = None
+    role: str
+    content: str
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    created_at: datetime
 
     model_config = {"json_schema_extra": {
         "example": {
             "session_id": "507f1f77bcf86cd799439011",
-            "status": "processing",
-            "loop_count": 1,
-            "decision_type": "continue"
+            "role": "assistant",
+            "content": "I've analyzed the retention data. Here are my findings...",
+            "tool_calls": [{"name": "funnel_analysis", "result": {"conversion_rate": 0.45}}],
+            "created_at": "2025-01-15T10:30:15Z"
         }
     }}
-
-
-class ObservationSummary(BaseModel):
-    """Summary of session observations"""
-    total_observations: int
-    error_count: int
-    tool_call_count: int
-    rag_retrieval_count: int
-    tools_used: List[str]
 
 
 class SessionStatusResponse(BaseModel):
     """Response schema for session status"""
     session_id: str
+    goal: Optional[str] = None
     status: str
-    current_loop_count: int
-    max_loop_count: int
-    hitl_request: Optional[Dict[str, Any]] = None
-    final_decision: Optional[Dict[str, Any]] = None
-    error_message: Optional[str] = None
+    message_count: int
     created_at: datetime
     updated_at: Optional[datetime] = None
-    observation_summary: ObservationSummary
+    archived_at: Optional[datetime] = None
+    archive_reason: Optional[str] = None
 
     model_config = {"json_schema_extra": {
         "example": {
             "session_id": "507f1f77bcf86cd799439011",
-            "status": "completed",
-            "current_loop_count": 3,
-            "max_loop_count": 10,
-            "final_decision": {
-                "recommendation": "Implement onboarding tutorial",
-                "expected_impact": "15% improvement in D7 retention"
-            },
+            "goal": "Analyze user retention for mobile users",
+            "status": "active",
+            "message_count": 5,
             "created_at": "2025-01-15T10:30:00Z",
             "updated_at": "2025-01-15T10:35:00Z",
-            "observation_summary": {
-                "total_observations": 12,
-                "error_count": 0,
-                "tool_call_count": 8,
-                "rag_retrieval_count": 2,
-                "tools_used": ["funnel_analysis", "search_growth_memory"]
-            }
+            "archived_at": None,
+            "archive_reason": None
         }
     }}
 
 
-class ObservationItem(BaseModel):
-    """Individual observation item"""
+class MessageItem(BaseModel):
+    """Individual message item"""
     id: str
-    observation_type: str
-    content: Dict[str, Any]
-    tool_name: Optional[str] = None
-    is_error: bool
+    role: str
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
 
 
-class ObservationsResponse(BaseModel):
-    """Response schema for observations list"""
+class MessagesResponse(BaseModel):
+    """Response schema for messages list"""
     session_id: str
-    observations: List[ObservationItem]
+    messages: List[MessageItem]
     total_count: int
-    limit: int
+    limit: Optional[int] = None
     offset: int
 
+    model_config = {"json_schema_extra": {
+        "example": {
+            "session_id": "507f1f77bcf86cd799439011",
+            "messages": [
+                {
+                    "id": "507f1f77bcf86cd799439012",
+                    "role": "user",
+                    "content": "Analyze mobile retention",
+                    "metadata": None,
+                    "created_at": "2025-01-15T10:30:00Z"
+                },
+                {
+                    "id": "507f1f77bcf86cd799439013",
+                    "role": "assistant",
+                    "content": "I've analyzed the mobile retention data...",
+                    "metadata": {"tool_calls": []},
+                    "created_at": "2025-01-15T10:30:15Z"
+                }
+            ],
+            "total_count": 2,
+            "limit": 50,
+            "offset": 0
+        }
+    }}
 
-class HITLResponse(BaseModel):
-    """Response schema for HITL submission"""
+
+class ArchiveResponse(BaseModel):
+    """Response schema for session archive"""
     session_id: str
     status: str
+    archived_at: datetime
     message: str
 
     model_config = {"json_schema_extra": {
         "example": {
             "session_id": "507f1f77bcf86cd799439011",
-            "status": "processing",
-            "message": "HITL response received, resuming processing"
+            "status": "archived",
+            "archived_at": "2025-01-15T12:00:00Z",
+            "message": "Session archived successfully"
         }
     }}
-
-
-class ErrorResponse(BaseModel):
-    """Standard error response"""
-    error: str
-    detail: Optional[str] = None
-    session_id: Optional[str] = None

@@ -1,6 +1,7 @@
 """Agent Session Repository Interface (Port)"""
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from datetime import datetime
+from typing import List, Optional
 
 from domain.entities.agent_session import AgentSessionEntity
 from domain.value_objects.agent_enums import SessionStatus
@@ -8,7 +9,7 @@ from domain.value_objects.agent_enums import SessionStatus
 
 class AgentSessionRepository(ABC):
     """
-    Repository interface for AgentSession entity
+    Repository interface for AgentSession entity (conversational model)
 
     Defines the contract for AgentSession persistence operations.
     All methods are async for non-blocking I/O.
@@ -44,8 +45,7 @@ class AgentSessionRepository(ABC):
     async def update_status(
         self,
         session_id: str,
-        status: SessionStatus,
-        error_message: Optional[str] = None
+        status: SessionStatus
     ) -> bool:
         """
         Update session status
@@ -53,7 +53,6 @@ class AgentSessionRepository(ABC):
         Args:
             session_id: Session ID to update
             status: New status
-            error_message: Optional error message (for FAILED status)
 
         Returns:
             True if update was successful
@@ -61,30 +60,17 @@ class AgentSessionRepository(ABC):
         pass
 
     @abstractmethod
-    async def increment_loop_count(self, session_id: str) -> bool:
-        """
-        Increment the current loop count
-
-        Args:
-            session_id: Session ID to update
-
-        Returns:
-            True if update was successful
-        """
-        pass
-
-    @abstractmethod
-    async def set_hitl_request(
+    async def update_goal(
         self,
         session_id: str,
-        hitl_request: dict
+        goal: str
     ) -> bool:
         """
-        Set HITL request and update status to WAITING_HITL
+        Update session goal (set from first message)
 
         Args:
             session_id: Session ID to update
-            hitl_request: HITL request data
+            goal: Goal text (from first user message)
 
         Returns:
             True if update was successful
@@ -92,33 +78,20 @@ class AgentSessionRepository(ABC):
         pass
 
     @abstractmethod
-    async def clear_hitl_request(self, session_id: str) -> bool:
-        """
-        Clear HITL request after response received
-
-        Args:
-            session_id: Session ID to update
-
-        Returns:
-            True if update was successful
-        """
-        pass
-
-    @abstractmethod
-    async def set_final_decision(
+    async def archive_session(
         self,
         session_id: str,
-        final_decision: dict
+        reason: Optional[str] = None
     ) -> bool:
         """
-        Set final decision and mark session as COMPLETED
+        Archive a session
 
         Args:
-            session_id: Session ID to update
-            final_decision: Final decision data
+            session_id: Session ID to archive
+            reason: Optional archive reason
 
         Returns:
-            True if update was successful
+            True if archive was successful
         """
         pass
 
@@ -137,5 +110,18 @@ class AgentSessionRepository(ABC):
 
         Returns:
             List of AgentSessionEntity
+        """
+        pass
+
+    @abstractmethod
+    async def delete(self, session_id: str) -> bool:
+        """
+        Delete a session
+
+        Args:
+            session_id: Session ID to delete
+
+        Returns:
+            True if deletion was successful
         """
         pass
