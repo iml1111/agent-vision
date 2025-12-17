@@ -1,23 +1,19 @@
 """
 Agent Orchestration Service
 
-Conversational agent service for continuous dialogue-based growth analysis.
-Supports async processing via SQS worker.
+Message processing and agent execution service.
+Handles async message enqueueing and agent response generation.
 """
-from typing import Optional, List
-
 from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
 from adapters.mongodb.collections.message_adapter import MessageAdapter
 from adapters.repositories.mongodb.agent_session import MongoAgentSessionRepository
 from adapters.repositories.mongodb.message import MongoMessageRepository
-from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.aws.sqs_producer import SQSProducerAdapter
 from adapters.agent.client import GrowthAgentClient
-from domain.entities.agent_session import AgentSessionEntity
 from domain.entities.message import MessageEntity
 from domain.value_objects.agent_enums import SessionStatus, MessageRole
-from domain.value_objects.agent_types import SessionStatusVO, MessageEnqueueResultVO
+from domain.value_objects.agent_types import MessageEnqueueResultVO
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
@@ -28,29 +24,20 @@ from loguru import logger
 
 class AgentOrchestrationService:
     """
-    Conversational orchestration service for growth agent sessions.
+    Agent message processing and execution service.
 
-    Manages continuous dialogue sessions where users can:
-    - Send messages and receive agent responses (async via worker)
-    - Archive sessions for later reference
+    Handles:
+    - Message enqueueing for async processing
+    - Agent response execution (via worker)
     """
 
-    def __init__(
-        self,
-        db_client: MongoDBClient,
-        embedding_client: OpenAIEmbeddingClient
-    ):
+    def __init__(self, db_client: MongoDBClient):
         """
         Initialize the orchestration service.
 
         Args:
             db_client: MongoDB client for database access
-            embedding_client: OpenAI client for embeddings
         """
-        self._db_client = db_client
-        self._embedding_client = embedding_client
-
-        # Initialize repositories
         self._session_repo = MongoAgentSessionRepository(
             AgentSessionAdapter(db_client.db)
         )
@@ -58,21 +45,9 @@ class AgentOrchestrationService:
             MessageAdapter(db_client.db)
         )
 
-    async def create_session(self) -> AgentSessionEntity:
+    async def _get_session(self, session_id: str):
         """
-        Create a new agent session.
-
-        Returns:
-            Created AgentSessionEntity
-        """
-        session = AgentSessionEntity.create()
-
-        session_id = await self._session_repo.create(session)
-        return await self._session_repo.get_by_id(session_id)
-
-    async def get_session(self, session_id: str) -> AgentSessionEntity:
-        """
-        Get a session by ID.
+        Internal session fetch.
 
         Args:
             session_id: Session ID
@@ -87,31 +62,6 @@ class AgentOrchestrationService:
         if not session:
             raise AgentSessionNotFoundError(f"Session {session_id} not found")
         return session
-
-    async def get_session_status(
-        self,
-        session_id: str
-    ) -> SessionStatusVO:
-        """
-        Get session status.
-
-        Args:
-            session_id: Session ID
-
-        Returns:
-            SessionStatusVO with session status and details
-        """
-        session = await self.get_session(session_id)
-        message_count = await self._message_repo.count_by_session_id(session_id)
-
-        return SessionStatusVO(
-            session_id=session.id,
-            status=session.status.value,
-            message_count=message_count,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            archived_at=session.archived_at
-        )
 
     async def enqueue_message(
         self,
@@ -133,14 +83,18 @@ class AgentOrchestrationService:
         Returns:
             MessageEnqueueResultVO with session_id, status, and user_message_id
         """
-        session = await self.get_session(session_id)
+        session = await self._get_session(session_id)
 
         # Validate session state
         if session.status == SessionStatus.ARCHIVED:
-            raise InvalidSessionStateError(f"Session {session_id} is archived. Create a new session.")
+            raise InvalidSessionStateError(
+                f"Session {session_id} is archived. Create a new session."
+            )
 
         if session.status == SessionStatus.PROCESSING:
-            raise InvalidSessionStateError(f"Session {session_id} is processing. Please wait for the response.")
+            raise InvalidSessionStateError(
+                f"Session {session_id} is processing. Please wait for the response."
+            )
 
         # Save user message
         user_message = MessageEntity.create(
@@ -180,13 +134,12 @@ class AgentOrchestrationService:
         Execute agent and save response.
 
         Worker calls this method after consuming from SQS.
-        This is the heavy-lifting part that was previously in process_message().
 
         Args:
             session_id: Session ID
             user_message_id: ID of the user message to respond to
         """
-        session = await self.get_session(session_id)
+        session = await self._get_session(session_id)
 
         try:
             # Get user message content
@@ -203,10 +156,6 @@ class AgentOrchestrationService:
                 max_turns=100,
                 resume_session_id=resume_session_id
             ) as client:
-                client.set_session_context({
-                    "session_id": session_id
-                })
-
                 result = await client.run_query(user_message.content)
 
                 # Save new SDK session ID if changed
@@ -273,37 +222,9 @@ class AgentOrchestrationService:
             logger.error(f"Agent execution failed for session {session_id}: {e}")
             raise
 
-    async def get_messages(
-        self,
-        session_id: str,
-        limit: Optional[int] = None,
-        offset: int = 0
-    ) -> List[MessageEntity]:
-        """
-        Get conversation messages for a session.
-
-        Args:
-            session_id: Session ID
-            limit: Maximum number of messages to return
-            offset: Number of messages to skip
-
-        Returns:
-            List of MessageEntity ordered by created_at ascending
-        """
-        await self.get_session(session_id)
-
-        return await self._message_repo.get_by_session_id(
-            session_id=session_id,
-            limit=limit,
-            offset=offset
-        )
-
     async def _archive_session(self, session_id: str) -> bool:
         """
-        Archive a session (called when SDK session expires).
-
-        Users cannot manually archive sessions - archiving only happens
-        when the Claude Agent SDK session expires.
+        Internal archive for SDK session expiration.
 
         Args:
             session_id: Session ID to archive
@@ -311,28 +232,9 @@ class AgentOrchestrationService:
         Returns:
             True if archived successfully
         """
-        session = await self.get_session(session_id)
+        session = await self._get_session(session_id)
 
         if session.status == SessionStatus.ARCHIVED:
-            # Already archived, skip
             return True
 
         return await self._session_repo.archive_session(session_id)
-
-    async def delete_session(self, session_id: str) -> bool:
-        """
-        Delete a session and all its messages.
-
-        Args:
-            session_id: Session ID to delete
-
-        Returns:
-            True if deleted successfully
-        """
-        await self.get_session(session_id)
-
-        # Delete all messages first
-        await self._message_repo.delete_by_session_id(session_id)
-
-        # Delete session
-        return await self._session_repo.delete(session_id)

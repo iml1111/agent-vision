@@ -2,13 +2,12 @@
 
 **Growth Hacking Agent Backend - DDD + Hexagonal Architecture**
 
-AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Plan→Act→Observe→Critique→Decide 루프를 통해 데이터 기반 성장 전략을 자동으로 분석하고 제안합니다.
+AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Claude Agent SDK를 활용하여 데이터 기반 성장 전략을 자동으로 분석하고 제안합니다.
 
 ## Features
 
-- **Agent Orchestration**: Claude Agent SDK 기반 자율 에이전트 루프
-- **HITL (Human-in-the-Loop)**: 중요 의사결정시 인간 개입 지원
-- **Growth Memory**: Vector Search 기반 RAG 시스템으로 학습 컨텍스트 유지
+- **Conversational Agent**: 연속 대화 기반 Growth 분석 (SDK Session Resume)
+- **Async Processing**: SQS FIFO 기반 비동기 처리 (빠른 API 응답)
 - **External Tool Integration**: Slack, Notion, EventLog 연동
 - **DDD + Hexagonal Architecture**: 확장 가능한 도메인 중심 설계
 
@@ -16,34 +15,28 @@ AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Plan→Act�
 
 - **Runtime**: Python 3.9+
 - **Framework**: FastAPI
-- **Database**: MongoDB (Motor + Atlas Vector Search)
-- **AI/LLM**: Claude Agent SDK, OpenAI Embeddings
-- **Queue**: AWS SQS (optional)
+- **Database**: MongoDB (Motor)
+- **AI/LLM**: Claude Agent SDK
+- **Queue**: AWS SQS FIFO
 
 ## Quick Start
 
 ### 1. Clone and Setup
 
 ```bash
-# Clone the repository
 git clone <your-repo-url> agent-vision
 cd agent-vision
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+source venv/bin/activate
 
-# Install dependencies
 pip install -r src/requirements.txt
 ```
 
 ### 2. Configure Environment
 
 ```bash
-# Copy example environment file
 cp .env.example .env
-
-# Edit .env with your settings
 vi .env
 ```
 
@@ -53,115 +46,113 @@ vi .env
 # API Server (development)
 ./void run api
 
-# SQS Worker (optional)
+# SQS Worker
 ./void run worker
 
 # CLI Job
 ./void run job <JOB_NAME>
 ```
 
+## Scripts
+
+### Agent Chat CLI (POC)
+
+API 테스트를 위한 대화형 CLI:
+
+```bash
+# 새 세션으로 시작
+python scripts/agent_chat.py
+
+# 기존 세션 이어서
+python scripts/agent_chat.py --session-id <SESSION_ID>
+
+# 다른 서버로 연결
+python scripts/agent_chat.py --base-url http://localhost:8080
+```
+
+**기능:**
+- 세션 생성/선택 → 대화 루프 (1초 polling) → `history` 조회 → `exit` 종료
+
+### Archive Session
+
+세션을 archived 상태로 변경:
+
+```bash
+python scripts/archive_session.py <SESSION_ID>
+```
+
+**출력 예시:**
+```
+Session archived successfully: 507f1f77bcf86cd799439011
+  Previous status: active
+  New status: archived
+```
+
+**Note:** 향후 Growth Memory로 대화 내용 마이그레이션 기능 추가 예정
+
 ## Project Structure
 
 ```
 src/
-├── config/              # Configuration modules
-│   └── allowlist.py     # Slack/Notion allowlist
+├── config.py            # Pydantic BaseSettings (Allowlist 포함)
 ├── domain/              # Pure Python domain logic
-│   ├── entities/        # Domain entities
-│   │   ├── agent_session.py
-│   │   ├── agent_loop.py
-│   │   ├── observation.py
-│   │   └── growth_memory.py
-│   ├── ports/           # Abstract interfaces
-│   └── value_objects/   # Enums and value objects
-├── service_layer/       # Application services
+│   ├── entities/        # agent_session.py, message.py
+│   ├── ports/           # Repository interfaces
+│   ├── value_objects/   # Enums and VOs
+│   └── exceptions.py
+├── service_layer/
 │   └── application/
-│       ├── agent_orchestration_service.py
-│       ├── observation_service.py
-│       └── growth_memory_service.py
-├── adapters/            # Infrastructure implementations
-│   ├── openai/          # OpenAI embedding client
-│   ├── external/        # Slack, Notion API clients
+│       └── agent_orchestration_service.py
+├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
+│   │   ├── client.py    # GrowthAgentClient
+│   │   ├── options.py   # Agent options
 │   │   ├── mcp_server.py
-│   │   ├── options.py
-│   │   └── client.py
-│   ├── agent_tools/     # Custom MCP tools
-│   │   ├── eventlog_tool.py
-│   │   ├── slack_tool.py
-│   │   ├── notion_tool.py
-│   │   └── growth_memory_tool.py
-│   ├── agent_hooks/     # Agent lifecycle hooks
-│   ├── mongodb/         # MongoDB adapters
+│   │   ├── hooks/       # pre_tool_use, post_tool_use
+│   │   └── tools/       # eventlog, slack, notion
+│   ├── mongodb/         # MongoDB client, collections
 │   ├── repositories/    # Repository implementations
+│   ├── aws/             # SQS producer/consumer
+│   ├── external/        # Slack, Notion API clients
 │   └── uow/             # Unit of Work
-├── entrypoints/         # Application entry points
+├── entrypoints/
 │   ├── api/             # FastAPI
 │   ├── worker/          # SQS Worker
 │   └── cli/             # CLI Jobs
-└── config.py            # Pydantic BaseSettings
+└── __about__.py
+
+scripts/
+├── agent_chat.py        # POC CLI for API testing
+└── archive_session.py   # Archive session utility
 ```
 
 ## API Endpoints
 
-### Core
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
+| POST | `/api/v1/agent/sessions` | Create session |
+| POST | `/api/v1/agent/sessions/{id}/messages` | Send message (async) |
+| GET | `/api/v1/agent/sessions/{id}/messages` | Get conversation history |
+| GET | `/api/v1/agent/sessions/{id}/status` | Get session status |
+| DELETE | `/api/v1/agent/sessions/{id}` | Delete session |
 
-### Agent Sessions
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/agent/sessions` | Create agent session |
-| POST | `/api/v1/agent/sessions/{id}/messages` | Send message (start/continue) |
-| GET | `/api/v1/agent/sessions/{id}/status` | Poll session status |
-| GET | `/api/v1/agent/sessions/{id}/observations` | Get session observations |
-| POST | `/api/v1/agent/sessions/{id}/hitl` | Submit HITL response |
-| DELETE | `/api/v1/agent/sessions/{id}` | Cancel session |
-
-### Session Status Flow
+### Client Usage Flow
 
 ```
-[created] → POST /messages → [processing] → GET /status (poll)
-                                   ↓
-            [waiting_hitl] ← needs HITL → POST /hitl → [processing]
-                                   ↓
-                            [completed] → final_decision in response
+1. POST /sessions → {"session_id": "...", "status": "active"}
+2. POST /sessions/{id}/messages → {"status": "processing"}
+3. GET /sessions/{id}/status (poll) → {"status": "active"}
+4. GET /sessions/{id}/messages → [user_message, assistant_message]
 ```
 
-## Agent System
+### Session Status
 
-### Loop Phases
-
-```
-Plan → Act → Observe → Critique → Decide
-  │      │       │         │         │
-  │      │       │         │         └─ CONTINUE / HITL_QUESTION / EXPERIMENT
-  │      │       │         └─ Evaluate tool results
-  │      │       └─ Capture observations via hooks
-  │      └─ Execute MCP tools
-  └─ Claude Agent reasoning
-```
-
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `eventlog_*` | MongoDB analytics queries (funnel, retention) |
-| `slack_*` | Slack channel access (allowlisted) |
-| `notion_*` | Notion database access (allowlisted) |
-| `growth_memory_*` | Vector search RAG |
-
-### Decision Types
-
-| Type | Description |
-|------|-------------|
-| `CONTINUE` | Need more information, continue loop |
-| `HITL_QUESTION` | Request human input |
-| `EXPERIMENT` | Recommend A/B test |
-| `INSTRUMENTATION_TODO` | Need event tracking |
+| Status | Description |
+|--------|-------------|
+| `active` | 대화 진행 중 |
+| `processing` | Worker에서 응답 생성 중 |
+| `archived` | SDK 세션 만료 |
 
 ## Environment Variables
 
@@ -170,56 +161,34 @@ Plan → Act → Observe → Critique → Decide
 | `MONGODB_URI` | MongoDB connection URI | Yes |
 | `MONGODB_NAME` | Database name | Yes |
 | `ANTHROPIC_API_KEY` | Claude API key | Yes |
-| `OPENAI_API_KEY` | OpenAI API key (embeddings) | Yes |
+| `AWS_ACCESS_KEY_ID` | AWS access key | Yes |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes |
+| `AWS_REGION` | AWS region | Yes |
+| `SQS_QUEUE_URL` | SQS FIFO queue URL | Yes |
 | `SLACK_BOT_TOKEN` | Slack bot token | Optional |
 | `NOTION_API_KEY` | Notion API key | Optional |
-| `AGENT_MAX_LOOP_COUNT` | Max agent loop iterations | No (default: 10) |
-| `AGENT_HITL_TIMEOUT_SECONDS` | HITL response timeout | No (default: 3600) |
-| `SLACK_CHANNEL_ALLOWLIST` | JSON array of allowed channels | Optional |
-| `NOTION_DATABASE_ALLOWLIST` | JSON array of allowed databases | Optional |
-| `NOTION_PAGE_ALLOWLIST` | JSON array of allowed pages | Optional |
+| `OPENAI_API_KEY` | OpenAI API key | Optional |
 
 ## Development
 
 ### Adding a New Entity
 
-1. Create entity in `domain/entities/`
-2. Define repository port in `domain/ports/`
-3. Implement MongoDB adapter in `adapters/mongodb/collections/`
-4. Implement repository in `adapters/repositories/mongodb/`
-5. Register in `adapters/uow/mongo_unit_of_work.py`
+1. `domain/entities/xxx.py` - Entity with `create()` factory
+2. `domain/ports/xxx.py` - Repository ABC
+3. `adapters/mongodb/collections/xxx_adapter.py` - Collection adapter
+4. `adapters/repositories/mongodb/xxx.py` - Repository impl
 
 ### Adding a New Agent Tool
 
-1. Create tool in `adapters/agent_tools/xxx_tool.py` with `@tool` decorator
-2. Register in `adapters/agent/mcp_server.py`
-3. Add to `GROWTH_TOOL_NAMES` in `adapters/agent/options.py`
+1. `adapters/agent/tools/xxx_tool.py` - @tool decorator
+2. `adapters/agent/mcp_server.py` - MCP server 등록
+3. `adapters/agent/tools/__init__.py` - GROWTH_TOOLS 추가
 
 ### Adding a New API Endpoint
 
-1. Create schemas in `entrypoints/api/schemas/`
-2. Create route handler in `entrypoints/api/routes/`
-3. Register router in `entrypoints/api/routes/__init__.py`
-
-## Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run integration tests (requires MongoDB)
-pytest tests/integration/ -v
-```
-
-## Requirements
-
-- Python 3.9+
-- MongoDB (Replica Set for transactions)
-- Anthropic API access (Claude)
-- OpenAI API access (Embeddings)
+1. `entrypoints/api/schemas/xxx.py` - Schemas
+2. `entrypoints/api/routes/xxx.py` - Route handlers
+3. `entrypoints/api/routes/__init__.py` - Router 등록
 
 ## License
 

@@ -52,7 +52,8 @@ src/
 │   └── exceptions.py    # Domain exceptions
 ├── service_layer/
 │   └── application/
-│       └── agent_orchestration_service.py  # enqueue_message + execute_agent_response
+│       ├── session_management_service.py   # Session CRUD
+│       └── agent_orchestration_service.py  # Message processing + Agent execution
 ├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
 │   │   ├── client.py        # GrowthAgentClient wrapper
@@ -84,9 +85,9 @@ src/
 │   └── cli/             # CLI Jobs
 └── __about__.py
 
-tests/
-├── integration/
-└── e2e/
+scripts/
+├── agent_chat.py        # POC CLI for API testing
+└── archive_session.py   # Archive session utility
 ```
 
 ---
@@ -119,17 +120,24 @@ API는 빠른 응답을 위해 메시지만 저장 후 SQS에 enqueue. Worker가
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Service Methods
+### Service Layer
 
 ```python
-# API용 - 빠른 응답 (returns Value Object)
-async def enqueue_message(session_id, content, sqs_producer) -> EnqueueResult:
-    # Save message + Set PROCESSING + Enqueue to SQS
-    return EnqueueResult(status="processing", user_message_id="...")
+# SessionManagementService - Session CRUD
+class SessionManagementService:
+    def __init__(self, db_client): ...
+    async def create_session() -> AgentSessionEntity
+    async def get_session(session_id) -> AgentSessionEntity
+    async def get_session_status(session_id) -> SessionStatusVO
+    async def get_messages(session_id, limit, offset) -> List[MessageEntity]
+    async def archive_session(session_id) -> bool
+    async def delete_session(session_id) -> bool
 
-# Worker용 - 무거운 작업 (SDK가 conversation history 관리)
-async def execute_agent_response(session_id, user_message_id) -> None:
-    # Load user message → SDK resumes session → Save response → Set ACTIVE
+# AgentOrchestrationService - Message processing
+class AgentOrchestrationService:
+    def __init__(self, db_client): ...
+    async def enqueue_message(session_id, content, sqs_producer) -> MessageEnqueueResultVO
+    async def execute_agent_response(session_id, user_message_id) -> None
 ```
 
 ---
@@ -405,11 +413,21 @@ Return error: "Session expired, create new session"
 
 ---
 
-## Testing
+## Scripts
+
+### POC CLI (scripts/agent_chat.py)
+
+API 테스트용 대화형 CLI:
 
 ```bash
-pytest                          # All tests
-pytest tests/integration/ -v    # Integration (requires MongoDB)
-pytest tests/e2e/ -v            # E2E tests
-pytest --cov=src               # Coverage
+# 새 세션으로 시작
+python scripts/agent_chat.py
+
+# 기존 세션 이어서
+python scripts/agent_chat.py --session-id <id>
+
+# 다른 서버로 연결
+python scripts/agent_chat.py --base-url http://localhost:8080
 ```
+
+**기능**: 세션 생성/선택 → 대화 루프 (1초 polling) → history 조회

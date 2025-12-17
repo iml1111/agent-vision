@@ -34,10 +34,9 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
 
     # Get dependencies
     db_client = WorkerDependencies.get_db_client()
-    embedding_client = WorkerDependencies.get_embedding_client()
 
     # Create service instance
-    service = AgentOrchestrationService(db_client, embedding_client)
+    service = AgentOrchestrationService(db_client)
 
     # Execute agent response (handles its own error recovery)
     await service.execute_agent_response(

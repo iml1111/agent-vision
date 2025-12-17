@@ -3,7 +3,7 @@ Growth Agent Client
 
 High-level wrapper for Claude SDK client with session lifecycle management.
 """
-from typing import AsyncIterator, Dict, Any, Optional, List, Callable
+from typing import AsyncIterator, Any, Optional, List, Callable
 from claude_code_sdk import ClaudeSDKClient, AssistantMessage, TextBlock, ToolUseBlock
 from loguru import logger
 from domain.value_objects import (
@@ -47,17 +47,12 @@ class GrowthAgentClient:
         self._mcp_server = None
         self._options = None
         self._client: Optional[ClaudeSDKClient] = None
-        self._session_context: Dict[str, Any] = {}
         self._sdk_session_id: Optional[str] = None
 
     @property
     def sdk_session_id(self) -> Optional[str]:
         """Get the SDK session ID captured from the response"""
         return self._sdk_session_id
-
-    def set_session_context(self, context: Dict[str, Any]):
-        """Set session context for hooks"""
-        self._session_context = context
 
     async def __aenter__(self) -> "GrowthAgentClient":
         """Async context manager entry"""

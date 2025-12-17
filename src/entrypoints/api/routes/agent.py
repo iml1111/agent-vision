@@ -20,7 +20,11 @@ from entrypoints.api.schemas.agent import (
     SessionCreateResponse,
     SessionStatusResponse,
 )
-from entrypoints.api.dependencies.services import get_orchestration_service
+from entrypoints.api.dependencies.services import (
+    get_session_service,
+    get_orchestration_service,
+)
+from service_layer.application.session_management_service import SessionManagementService
 from service_layer.application.agent_orchestration_service import AgentOrchestrationService
 
 
@@ -40,7 +44,7 @@ def get_sqs_producer(request: Request) -> Optional[SQSProducerAdapter]:
     description="Create a new conversational agent session."
 )
 async def create_session(
-    service: AgentOrchestrationService = Depends(get_orchestration_service)
+    service: SessionManagementService = Depends(get_session_service)
 ):
     """Create a new agent session"""
     session = await service.create_session()
@@ -103,7 +107,7 @@ async def get_messages(
     session_id: str,
     limit: Optional[int] = Query(None, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    service: AgentOrchestrationService = Depends(get_orchestration_service)
+    service: SessionManagementService = Depends(get_session_service)
 ):
     """Get conversation messages for a session"""
     try:
@@ -143,7 +147,7 @@ async def get_messages(
 )
 async def get_session_status(
     session_id: str,
-    service: AgentOrchestrationService = Depends(get_orchestration_service)
+    service: SessionManagementService = Depends(get_session_service)
 ):
     """Get session status"""
     try:
@@ -168,7 +172,7 @@ async def get_session_status(
 )
 async def delete_session(
     session_id: str,
-    service: AgentOrchestrationService = Depends(get_orchestration_service)
+    service: SessionManagementService = Depends(get_session_service)
 ):
     """Delete a session and all its messages"""
     try:
