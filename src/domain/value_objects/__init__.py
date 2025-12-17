@@ -7,7 +7,6 @@ from .agent_types import (
     AgentMessageType,
     ToolCallVO,
     AgentStreamEvent,
-    AgentResponse,
     SessionStatusVO,
     MessageEnqueueResultVO,
 )
@@ -20,7 +19,6 @@ __all__ = [
     "AgentMessageType",
     "ToolCallVO",
     "AgentStreamEvent",
-    "AgentResponse",
     # Service Result VOs
     "SessionStatusVO",
     "MessageEnqueueResultVO",

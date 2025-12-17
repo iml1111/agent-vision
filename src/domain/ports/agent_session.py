@@ -104,17 +104,17 @@ class AgentSessionRepository(ABC):
         pass
 
     @abstractmethod
-    async def update_sdk_session_id(
+    async def update_claude_session_id(
         self,
         session_id: str,
-        sdk_session_id: str
+        claude_session_id: str
     ) -> bool:
         """
-        Update SDK session ID for resume capability
+        Update Claude session ID for resume capability
 
         Args:
             session_id: System session ID
-            sdk_session_id: Claude Agent SDK session ID
+            claude_session_id: Claude Agent SDK session ID
 
         Returns:
             True if update was successful
@@ -122,9 +122,9 @@ class AgentSessionRepository(ABC):
         pass
 
     @abstractmethod
-    async def clear_sdk_session_id(self, session_id: str) -> bool:
+    async def clear_claude_session_id(self, session_id: str) -> bool:
         """
-        Clear SDK session ID when session expires
+        Clear Claude session ID when session expires
 
         Args:
             session_id: System session ID

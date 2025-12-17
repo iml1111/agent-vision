@@ -21,7 +21,7 @@ class AgentSessionEntity(BaseEntity):
     status: SessionStatus
     created_at: datetime
     id: Optional[str] = None
-    sdk_session_id: Optional[str] = None  # Claude Agent SDK session ID for resume
+    claude_session_id: Optional[str] = None  # Claude Agent SDK session ID for resume
     updated_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
 

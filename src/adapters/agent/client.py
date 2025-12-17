@@ -3,14 +3,13 @@ Growth Agent Client
 
 High-level wrapper for Claude SDK client with session lifecycle management.
 """
-from typing import AsyncIterator, Any, Optional, List, Callable
+from typing import AsyncIterator, Any, Optional
 from claude_code_sdk import ClaudeSDKClient, AssistantMessage, TextBlock, ToolUseBlock
 from loguru import logger
 from domain.value_objects import (
     AgentMessageType,
     ToolCallVO,
     AgentStreamEvent,
-    AgentResponse,
 )
 from .mcp_server import create_growth_agent_mcp_server
 from .options import create_growth_agent_options
@@ -24,9 +23,10 @@ class GrowthAgentClient:
     managing session lifecycle and message handling.
     """
 
+    _MAX_TURNS = 100
+
     def __init__(
         self,
-        max_turns: int = 50,
         max_budget_usd: Optional[float] = None,
         model: str = "claude-sonnet-4-5",
         resume_session_id: Optional[str] = None
@@ -35,24 +35,22 @@ class GrowthAgentClient:
         Initialize the Growth Agent client.
 
         Args:
-            max_turns: Maximum number of agent turns per query
             max_budget_usd: Optional budget limit in USD
             model: Claude model to use
             resume_session_id: Optional SDK session ID to resume
         """
-        self._max_turns = max_turns
         self._max_budget_usd = max_budget_usd
         self._model = model
         self._resume_session_id = resume_session_id
         self._mcp_server = None
         self._options = None
         self._client: Optional[ClaudeSDKClient] = None
-        self._sdk_session_id: Optional[str] = None
+        self._claude_session_id: Optional[str] = None
 
     @property
-    def sdk_session_id(self) -> Optional[str]:
-        """Get the SDK session ID captured from the response"""
-        return self._sdk_session_id
+    def claude_session_id(self) -> Optional[str]:
+        """Get the Claude session ID captured from the response"""
+        return self._claude_session_id
 
     async def __aenter__(self) -> "GrowthAgentClient":
         """Async context manager entry"""
@@ -62,7 +60,7 @@ class GrowthAgentClient:
         # Create options with resume support
         self._options = create_growth_agent_options(
             mcp_server=self._mcp_server,
-            max_turns=self._max_turns,
+            max_turns=self._MAX_TURNS,
             max_budget_usd=self._max_budget_usd,
             model=self._model,
             resume_session_id=self._resume_session_id
@@ -117,17 +115,17 @@ class GrowthAgentClient:
             if hasattr(message, 'data') and isinstance(message.data, dict):
                 session_id = message.data.get('session_id')
                 if session_id:
-                    self._sdk_session_id = session_id
-                    logger.debug(f"Captured SDK session ID: {session_id}")
+                    self._claude_session_id = session_id
+                    logger.debug(f"Captured Claude session ID: {session_id}")
                     return AgentStreamEvent(
                         type=AgentMessageType.INIT,
-                        sdk_session_id=session_id
+                        claude_session_id=session_id
                     )
         # Also try to capture from session_id attribute directly
         elif hasattr(message, 'session_id') and message.session_id:
-            if not self._sdk_session_id:
-                self._sdk_session_id = message.session_id
-                logger.debug(f"Captured SDK session ID from message: {message.session_id}")
+            if not self._claude_session_id:
+                self._claude_session_id = message.session_id
+                logger.debug(f"Captured Claude session ID from message: {message.session_id}")
 
         # AssistantMessage handling
         if isinstance(message, AssistantMessage):
@@ -175,48 +173,5 @@ class GrowthAgentClient:
         # Completion event
         yield AgentStreamEvent(
             type=AgentMessageType.COMPLETE,
-            sdk_session_id=self._sdk_session_id
-        )
-
-    async def run_query(
-        self,
-        prompt: str,
-        on_event: Optional[Callable[[AgentStreamEvent], None]] = None
-    ) -> AgentResponse:
-        """
-        Execute query and return final aggregated response.
-
-        Args:
-            prompt: The prompt/query to send
-            on_event: Optional callback for each event (for real-time updates)
-
-        Returns:
-            AgentResponse: Final aggregated response (immutable)
-        """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
-
-        text_response = ""
-        tool_calls: List[ToolCallVO] = []
-        message_count = 0
-
-        async for event in self.stream_query(prompt):
-            message_count += 1
-
-            if on_event:
-                try:
-                    on_event(event)
-                except Exception as e:
-                    logger.warning(f"on_event callback error: {e}")
-
-            if event.type == AgentMessageType.TEXT:
-                text_response = event.content or ""
-            elif event.type == AgentMessageType.TOOL_USE and event.tool_call:
-                tool_calls.append(event.tool_call)
-
-        return AgentResponse(
-            text_response=text_response,
-            tool_calls=tuple(tool_calls),
-            sdk_session_id=self._sdk_session_id,
-            message_count=message_count
+            claude_session_id=self._claude_session_id
         )

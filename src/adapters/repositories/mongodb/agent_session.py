@@ -110,15 +110,15 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             logger.error(f"Failed to delete session_id '{session_id}': {e}")
             return False
 
-    async def update_sdk_session_id(
+    async def update_claude_session_id(
         self,
         session_id: str,
-        sdk_session_id: str
+        claude_session_id: str
     ) -> bool:
-        """Update SDK session ID for resume capability"""
+        """Update Claude session ID for resume capability"""
         update_doc = {
             "$set": {
-                "sdk_session_id": sdk_session_id,
+                "claude_session_id": claude_session_id,
                 "updated_at": datetime.now(timezone.utc)
             }
         }
@@ -130,14 +130,14 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             )
             return result.modified_count > 0
         except Exception as e:
-            logger.error(f"Failed to update SDK session ID for '{session_id}': {e}")
+            logger.error(f"Failed to update Claude session ID for '{session_id}': {e}")
             return False
 
-    async def clear_sdk_session_id(self, session_id: str) -> bool:
-        """Clear SDK session ID when session expires"""
+    async def clear_claude_session_id(self, session_id: str) -> bool:
+        """Clear Claude session ID when session expires"""
         update_doc = {
             "$set": {
-                "sdk_session_id": None,
+                "claude_session_id": None,
                 "updated_at": datetime.now(timezone.utc)
             }
         }
@@ -149,5 +149,5 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             )
             return result.modified_count > 0
         except Exception as e:
-            logger.error(f"Failed to clear SDK session ID for '{session_id}': {e}")
+            logger.error(f"Failed to clear Claude session ID for '{session_id}': {e}")
             return False

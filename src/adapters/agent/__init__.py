@@ -18,7 +18,6 @@ from domain.value_objects import (
     AgentMessageType,
     ToolCallVO,
     AgentStreamEvent,
-    AgentResponse,
 )
 
 __all__ = [
@@ -39,5 +38,4 @@ __all__ = [
     "AgentMessageType",
     "ToolCallVO",
     "AgentStreamEvent",
-    "AgentResponse",
 ]

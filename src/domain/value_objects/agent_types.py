@@ -1,7 +1,7 @@
 """Agent Value Objects - Types for agent communication"""
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 from enum import Enum
 
 
@@ -33,21 +33,8 @@ class AgentStreamEvent:
     type: AgentMessageType
     content: Optional[str] = None          # Text content for TEXT type
     tool_call: Optional[ToolCallVO] = None  # Tool call info for TOOL_USE type
-    sdk_session_id: Optional[str] = None   # Session ID for INIT type
+    claude_session_id: Optional[str] = None   # Session ID for INIT type
     error: Optional[str] = None            # Error message for ERROR type
-
-
-@dataclass(frozen=True)
-class AgentResponse:
-    """
-    Agent final response Value Object
-
-    Replaces Dict[str, Any] return type with type-safe immutable object.
-    """
-    text_response: str
-    tool_calls: Tuple[ToolCallVO, ...]  # Tuple for immutability
-    sdk_session_id: Optional[str]
-    message_count: int = 0
 
 
 @dataclass(frozen=True)

@@ -13,7 +13,7 @@ from adapters.aws.sqs_producer import SQSProducerAdapter
 from adapters.agent.client import GrowthAgentClient
 from domain.entities.message import MessageEntity
 from domain.value_objects.agent_enums import SessionStatus, MessageRole
-from domain.value_objects.agent_types import MessageEnqueueResultVO
+from domain.value_objects.agent_types import MessageEnqueueResultVO, AgentMessageType
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
@@ -131,9 +131,10 @@ class AgentOrchestrationService:
         user_message_id: str
     ) -> None:
         """
-        Execute agent and save response.
+        Execute agent and save each event to DB in real-time.
 
         Worker calls this method after consuming from SQS.
+        Each streaming event (TEXT, TOOL_USE, etc.) is saved as a separate message.
 
         Args:
             session_id: Session ID
@@ -147,54 +148,71 @@ class AgentOrchestrationService:
             if not user_message:
                 raise ValueError(f"User message {user_message_id} not found")
 
-            # Get saved SDK session ID for resume
-            resume_session_id = session.sdk_session_id
+            # Get saved Claude session ID for resume
+            resume_session_id = session.claude_session_id
+            sequence = 0
 
-            # Execute agent with SDK session resume support
-            # SDK maintains conversation history automatically when resuming
-            async with GrowthAgentClient(
-                max_turns=100,
-                resume_session_id=resume_session_id
-            ) as client:
-                result = await client.run_query(user_message.content)
+            # Execute agent with streaming - save each event to DB
+            async with GrowthAgentClient(resume_session_id=resume_session_id) as client:
+                async for event in client.stream_query(user_message.content):
+                    sequence += 1
 
-                # Save new SDK session ID if changed
-                new_sdk_session_id = client.sdk_session_id
-                if new_sdk_session_id and new_sdk_session_id != resume_session_id:
-                    await self._session_repo.update_sdk_session_id(
-                        session_id, new_sdk_session_id
-                    )
-                    logger.info(
-                        f"Updated SDK session ID for session {session_id}: "
-                        f"{resume_session_id} -> {new_sdk_session_id}"
-                    )
+                    if event.type == AgentMessageType.TEXT:
+                        # Save text response
+                        message = MessageEntity.create(
+                            session_id=session_id,
+                            role=MessageRole.ASSISTANT,
+                            content=event.content or "",
+                            metadata={
+                                "event_type": "text",
+                                "sequence": sequence,
+                                "user_message_id": user_message_id
+                            }
+                        )
+                        await self._message_repo.create(message)
+                        logger.debug(f"Saved TEXT event #{sequence} for session {session_id}")
 
-            # Save assistant response
-            assistant_message = MessageEntity.create(
-                session_id=session_id,
-                role=MessageRole.ASSISTANT,
-                content=result.text_response,
-                metadata={
-                    "tool_calls": [
-                        {"id": tc.id, "name": tc.name, "input": tc.input}
-                        for tc in result.tool_calls
-                    ],
-                    "sdk_session_id": new_sdk_session_id,
-                    "message_count": result.message_count,
-                    "user_message_id": user_message_id
-                }
-            )
-            await self._message_repo.create(assistant_message)
+                    elif event.type == AgentMessageType.TOOL_USE and event.tool_call:
+                        # Save tool use event
+                        message = MessageEntity.create(
+                            session_id=session_id,
+                            role=MessageRole.ASSISTANT,
+                            content=f"Tool: {event.tool_call.name}",
+                            metadata={
+                                "event_type": "tool_use",
+                                "sequence": sequence,
+                                "tool_call": {
+                                    "id": event.tool_call.id,
+                                    "name": event.tool_call.name,
+                                    "input": event.tool_call.input
+                                },
+                                "user_message_id": user_message_id
+                            }
+                        )
+                        await self._message_repo.create(message)
+                        logger.debug(f"Saved TOOL_USE event #{sequence} for session {session_id}")
+
+                    elif event.type == AgentMessageType.COMPLETE:
+                        # Update Claude session ID if available
+                        new_claude_session_id = event.claude_session_id
+                        if new_claude_session_id and new_claude_session_id != resume_session_id:
+                            await self._session_repo.update_claude_session_id(
+                                session_id, new_claude_session_id
+                            )
+                            logger.info(
+                                f"Updated Claude session ID for session {session_id}: "
+                                f"{resume_session_id} -> {new_claude_session_id}"
+                            )
 
             # Restore session to ACTIVE state
             await self._session_repo.update_status(session_id, SessionStatus.ACTIVE)
 
-            logger.info(f"Agent response completed for session {session_id}")
+            logger.info(f"Agent response completed for session {session_id}, {sequence} events saved")
 
         except SDKSessionExpiredError:
-            # SDK session expired - archive the system session
-            logger.warning(f"SDK session expired for session {session_id}, archiving...")
-            await self._session_repo.clear_sdk_session_id(session_id)
+            # Claude session expired - archive the system session
+            logger.warning(f"Claude session expired for session {session_id}, archiving...")
+            await self._session_repo.clear_claude_session_id(session_id)
             await self._archive_session(session_id)
 
             # Save error message for user to see

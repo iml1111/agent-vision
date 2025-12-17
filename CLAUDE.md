@@ -48,7 +48,7 @@ src/
 │   │   └── message.py
 │   ├── value_objects/
 │   │   ├── agent_enums.py      # SessionStatus, MessageRole
-│   │   └── agent_types.py      # ToolCallVO, AgentResponse, etc.
+│   │   └── agent_types.py      # ToolCallVO, AgentStreamEvent, etc.
 │   └── exceptions.py    # Domain exceptions
 ├── service_layer/
 │   └── application/
@@ -56,7 +56,7 @@ src/
 │       └── agent_orchestration_service.py  # Message processing + Agent execution
 ├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
-│   │   ├── client.py        # GrowthAgentClient wrapper
+│   │   ├── client.py        # GrowthAgentClient wrapper (_MAX_TURNS=100)
 │   │   ├── options.py       # Agent options configuration
 │   │   ├── mcp_server.py    # MCP server with tools
 │   │   ├── hooks/           # Agent lifecycle hooks
@@ -114,9 +114,11 @@ API는 빠른 응답을 위해 메시지만 저장 후 SQS에 enqueue. Worker가
 ├─────────────────────────────────────────────────────────────────┤
 │  @task process_agent_response(data)                             │
 │  1. Load session and user message                               │
-│  2. Execute GrowthAgentClient (SDK resumes session context)    │
-│  3. Save assistant message to DB                                │
-│  4. Set status → ACTIVE                                         │
+│  2. Execute GrowthAgentClient.stream_query()                    │
+│  3. For each event (TEXT, TOOL_USE):                            │
+│     → Save as individual MessageEntity to DB                    │
+│  4. On COMPLETE: update claude_session_id if changed            │
+│  5. Set status → ACTIVE                                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,7 +161,7 @@ class AgentSessionEntity(BaseEntity):
     status: SessionStatus
     created_at: datetime
     id: Optional[str] = None
-    sdk_session_id: Optional[str] = None  # Claude SDK session ID
+    claude_session_id: Optional[str] = None  # Claude SDK session ID
     updated_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
 
@@ -375,6 +377,11 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 │                 GrowthAgentClient                    │
 │  (Claude Agent SDK wrapper with session resume)      │
 ├──────────────────────────────────────────────────────┤
+│  stream_query() → yields AgentStreamEvent            │
+│  - TEXT: text content from assistant                 │
+│  - TOOL_USE: tool call with id, name, input          │
+│  - COMPLETE: final event with claude_session_id      │
+├──────────────────────────────────────────────────────┤
 │  PreToolUse:   Allowlist validation, tool logging    │
 │  PostToolUse:  Audit logging, observation capture    │
 └──────────────────────┬───────────────────────────────┘
@@ -395,9 +402,9 @@ SDK가 conversation history를 자동 관리하므로, 매번 히스토리를 �
 
 ```
 [First Message]
-session.sdk_session_id = None
+session.claude_session_id = None
 GrowthAgentClient(resume_session_id=None) → new SDK session
-Save sdk_session_id to database
+Save claude_session_id to database
 
 [Subsequent Messages]
 GrowthAgentClient(resume_session_id="sdk-xxx")
@@ -410,6 +417,44 @@ Return error: "Session expired, create new session"
 ```
 
 **Note**: 메시지는 DB에 저장되지만 이는 히스토리 조회용. Agent 실행 시에는 현재 user message만 전달.
+
+### Streaming Event Storage Pattern
+
+각 에이전트 응답 이벤트를 개별 메시지로 DB에 실시간 저장:
+
+```python
+async for event in client.stream_query(user_message.content):
+    if event.type == AgentMessageType.TEXT:
+        # 텍스트 응답 저장
+        message = MessageEntity.create(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=event.content,
+            metadata={"event_type": "text", "sequence": n}
+        )
+        await message_repo.create(message)
+
+    elif event.type == AgentMessageType.TOOL_USE:
+        # 도구 호출 저장
+        message = MessageEntity.create(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=f"Tool: {event.tool_call.name}",
+            metadata={
+                "event_type": "tool_use",
+                "sequence": n,
+                "tool_call": {"id": ..., "name": ..., "input": ...}
+            }
+        )
+        await message_repo.create(message)
+
+    elif event.type == AgentMessageType.COMPLETE:
+        # claude_session_id 업데이트 (변경 시)
+        if event.claude_session_id != resume_session_id:
+            await session_repo.update_claude_session_id(...)
+```
+
+**장점**: 긴 응답도 실시간 진행 상황 조회 가능, 중단 시 부분 결과 보존
 
 ---
 
