@@ -10,10 +10,12 @@ from entrypoints.worker.task_registry import TaskRegistry
 
 # Import all task modules here
 from . import agent_tasks
+from . import memory_tasks
 
 # All task modules
 TASK_MODULES = [
     agent_tasks,
+    memory_tasks,
 ]
 
 

@@ -34,12 +34,15 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
 
     # Get dependencies
     db_client = WorkerDependencies.get_db_client()
+    sqs_producer = WorkerDependencies.get_sqs_producer()
 
     # Create service instance
     service = AgentOrchestrationService(db_client)
 
     # Execute agent response (handles its own error recovery)
+    # Passes sqs_producer for enqueueing memory extraction on session archive
     await service.execute_agent_response(
         session_id=session_id,
-        user_message_id=user_message_id
+        user_message_id=user_message_id,
+        sqs_producer=sqs_producer
     )

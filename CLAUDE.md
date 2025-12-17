@@ -14,6 +14,7 @@ DDD + Hexagonal Architecture 패턴을 따릅니다.
 **핵심 기능**:
 - Conversational Agent: 연속 대화 기반 Growth 분석 (Async Worker 처리)
 - External Tools: Slack, Notion, EventLog
+- GrowthMemory: 세션 아카이브 시 RAG 기반 장기 메모리 저장 (Atlas Vector Search)
 
 ---
 
@@ -42,18 +43,21 @@ src/
 ├── domain/              # Pure Python (no external dependencies)
 │   ├── entities/
 │   │   ├── agent_session.py    # Session entity
-│   │   └── message.py          # Conversation message entity
+│   │   ├── message.py          # Conversation message entity
+│   │   └── growth_memory.py    # GrowthMemory entity (6개 요약 단위)
 │   ├── ports/           # Repository interfaces
 │   │   ├── agent_session.py
-│   │   └── message.py
+│   │   ├── message.py
+│   │   └── growth_memory.py    # vector_search 포함
 │   ├── value_objects/
 │   │   ├── agent_enums.py      # SessionStatus, MessageRole
-│   │   └── agent_types.py      # ToolCallVO, AgentStreamEvent, etc.
-│   └── exceptions.py    # Domain exceptions
+│   │   └── agent_types.py      # ToolCallVO, AgentStreamEvent, GrowthMemorySummaryVO
+│   └── exceptions.py    # Domain exceptions (SummarizationError 포함)
 ├── service_layer/
 │   └── application/
 │       ├── session_management_service.py   # Session CRUD
-│       └── agent_orchestration_service.py  # Message processing + Agent execution
+│       ├── agent_orchestration_service.py  # Message processing + Agent execution
+│       └── growth_memory_service.py        # GrowthMemory 생성/검색
 ├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
 │   │   ├── client.py        # GrowthAgentClient wrapper (_MAX_TURNS=100)
@@ -66,10 +70,16 @@ src/
 │   │       ├── eventlog_tool.py
 │   │       ├── slack_tool.py
 │   │       └── notion_tool.py
+│   ├── anthropic/       # Claude API clients
+│   │   └── summarization_client.py  # Session 요약 (6가지 단위)
 │   ├── mongodb/         # MongoDB client, collections, adapters
+│   │   └── collections/
+│   │       └── growth_memory_adapter.py  # $vectorSearch 지원
 │   ├── repositories/    # Repository implementations
+│   │   └── mongodb/
+│   │       └── growth_memory.py  # vector_search 구현
 │   ├── aws/             # SQS producer/consumer
-│   ├── openai/          # OpenAI client (future use)
+│   ├── openai/          # OpenAI embedding client (text-embedding-3-small)
 │   ├── external/        # Slack, Notion API clients
 │   └── uow/             # Unit of Work implementation
 ├── entrypoints/
@@ -79,15 +89,16 @@ src/
 │   │   └── schemas/agent.py # Request/Response schemas
 │   ├── worker/          # SQS Worker
 │   │   ├── app.py           # Worker entry point
-│   │   ├── dependencies.py  # Worker dependencies (db)
+│   │   ├── dependencies.py  # Worker dependencies (db, sqs_producer, summarization)
 │   │   └── tasks/
-│   │       └── agent_tasks.py  # @task process_agent_response
+│   │       ├── agent_tasks.py   # @task process_agent_response
+│   │       └── memory_tasks.py  # @task archive_session_to_memory
 │   └── cli/             # CLI Jobs
 └── __about__.py
 
 scripts/
 ├── agent_chat.py        # POC CLI for API testing
-└── archive_session.py   # Archive session utility
+└── archive_session.py   # Archive session + SQS enqueue (--skip-memory 옵션)
 ```
 
 ---
@@ -139,7 +150,8 @@ class SessionManagementService:
 class AgentOrchestrationService:
     def __init__(self, db_client): ...
     async def enqueue_message(session_id, content, sqs_producer) -> MessageEnqueueResultVO
-    async def execute_agent_response(session_id, user_message_id) -> None
+    async def execute_agent_response(session_id, user_message_id, sqs_producer=None) -> None
+    # sqs_producer 전달 시 SDK session expired → archive → memory task enqueue
 ```
 
 ---
@@ -235,11 +247,21 @@ async def lifespan(app: FastAPI):
 @task
 async def process_agent_response(data: Dict[str, Any]) -> None:
     db_client = WorkerDependencies.get_db_client()
+    sqs_producer = WorkerDependencies.get_sqs_producer()
     service = AgentOrchestrationService(db_client)
     await service.execute_agent_response(
         session_id=data["session_id"],
-        user_message_id=data["user_message_id"]
+        user_message_id=data["user_message_id"],
+        sqs_producer=sqs_producer  # For memory task on archive
     )
+
+# entrypoints/worker/tasks/memory_tasks.py
+@task
+async def archive_session_to_memory(data: Dict[str, Any]) -> None:
+    """세션 아카이브 → GrowthMemory 생성 (요약 + 임베딩)"""
+    session_id = data["session_id"]
+    service = GrowthMemoryService(db_client, summarization_client, embedding_client)
+    await service.create_memory_from_session(session_id)
 ```
 
 ---
@@ -476,3 +498,94 @@ python scripts/agent_chat.py --base-url http://localhost:8080
 ```
 
 **기능**: 세션 생성/선택 → 대화 루프 (1초 polling) → history 조회
+
+---
+
+## GrowthMemory System
+
+세션 아카이브 시 대화 내용을 Claude API로 요약하여 장기 메모리로 저장. Atlas Vector Search로 유사 사례 검색 지원.
+
+### Architecture Flow
+
+```
+[Archive Trigger]
+├─ SDK Session Expired (자동) → AgentOrchestrationService._archive_session()
+└─ Manual Archive (수동) → scripts/archive_session.py
+         │
+         ▼
+[SQS Enqueue] task_type="archive_session_to_memory"
+         │
+         ▼
+[Worker Task] archive_session_to_memory
+├─1. Session/Messages 조회
+├─2. Claude API 요약 (6가지 단위)
+├─3. Embedding 생성 (Problem + Bottleneck)
+└─4. GrowthMemory 저장 (idempotent)
+         │
+         ▼
+[MongoDB Collection] growth_memories
+- content_vector: 1536 dim (Atlas Vector Search)
+```
+
+### GrowthMemoryEntity 구조
+
+```python
+@dataclass(eq=False, frozen=True)
+class GrowthMemoryEntity(BaseEntity):
+    session_id: str
+    created_at: datetime
+    id: Optional[str] = None
+
+    # 6가지 요약 단위
+    problem_snapshot: Optional[str] = None      # 문제 정의
+    bottleneck_evidence: Optional[str] = None   # 병목/근거
+    hypotheses: Optional[List[str]] = None      # 가설 목록
+    experiment_cards: Optional[List[Dict]] = None  # 실험 카드
+    outcome: Optional[str] = None               # 결과
+    learnings_next_actions: Optional[str] = None  # 학습/다음 액션
+
+    # Vector Search
+    content_vector: Optional[List[float]] = None  # 1536 dim
+    vector_text: Optional[str] = None             # Problem + Bottleneck
+```
+
+### GrowthMemoryService
+
+```python
+class GrowthMemoryService:
+    async def create_memory_from_session(session_id: str) -> str:
+        """세션 아카이브 → 요약 → 임베딩 → 저장"""
+
+    async def search_similar_memories(query: str, limit: int = 5) -> List[GrowthMemoryEntity]:
+        """Vector Search로 유사 사례 검색"""
+
+    async def get_memory_by_session(session_id: str) -> Optional[GrowthMemoryEntity]:
+        """세션 ID로 메모리 조회"""
+```
+
+### Atlas Vector Search Index (수동 생성 필요)
+
+```json
+{
+  "name": "growth_memory_vector_index",
+  "type": "vectorSearch",
+  "definition": {
+    "fields": [{
+      "type": "vector",
+      "path": "content_vector",
+      "numDimensions": 1536,
+      "similarity": "cosine"
+    }]
+  }
+}
+```
+
+### Usage
+
+```bash
+# 수동 아카이브 (메모리 추출 포함)
+python scripts/archive_session.py <session_id>
+
+# 수동 아카이브 (메모리 추출 스킵)
+python scripts/archive_session.py <session_id> --skip-memory
+```

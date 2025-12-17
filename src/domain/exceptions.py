@@ -96,6 +96,12 @@ class EmbeddingServiceError(ExternalServiceError):
     pass
 
 
+class SummarizationError(ExternalServiceError):
+    """Session summarization with Claude API failed"""
+
+    pass
+
+
 class SlackAPIError(ExternalServiceError):
     """Slack API call failed"""
 

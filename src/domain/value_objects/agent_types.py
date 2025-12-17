@@ -1,7 +1,7 @@
 """Agent Value Objects - Types for agent communication"""
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from enum import Enum
 
 
@@ -62,3 +62,36 @@ class MessageEnqueueResultVO:
     session_id: str
     status: str
     user_message_id: str
+
+
+@dataclass(frozen=True)
+class GrowthMemorySummaryVO:
+    """
+    Growth Memory summarization result Value Object
+
+    Contains 6 structured summary units extracted from session conversation.
+    Used as intermediate result from Claude summarization before entity creation.
+    """
+    problem_snapshot: Optional[str]
+    bottleneck_evidence: Optional[str]
+    hypotheses: Optional[List[str]]
+    experiment_cards: Optional[List[Dict[str, Any]]]
+    outcome: Optional[str]
+    learnings_next_actions: Optional[str]
+
+    def get_embedding_text(self) -> str:
+        """
+        Combine Problem + Bottleneck for vector embedding.
+
+        These fields are most distinctive for retrieval and provide
+        actionable context for similar case search.
+
+        Returns:
+            Combined text for embedding generation, empty string if both are None
+        """
+        parts = []
+        if self.problem_snapshot:
+            parts.append(f"Problem: {self.problem_snapshot}")
+        if self.bottleneck_evidence:
+            parts.append(f"Bottleneck: {self.bottleneck_evidence}")
+        return "\n\n".join(parts) if parts else ""

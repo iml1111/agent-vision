@@ -5,7 +5,8 @@ Dependency injection for worker components and task handlers
 """
 from typing import Optional, Callable
 from config import Config
-from adapters.aws import SQSConsumerAdapter
+from adapters.anthropic.summarization_client import ClaudeSummarizationClient
+from adapters.aws import SQSConsumerAdapter, SQSProducerAdapter
 from adapters.mongodb.client import MongoDBClient
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.uow.mongo_unit_of_work import MongoUnitOfWork
@@ -46,6 +47,8 @@ class WorkerDependencies:
     _config: Optional[Config] = None
     _db_client: Optional[MongoDBClient] = None
     _embedding_client: Optional[OpenAIEmbeddingClient] = None
+    _summarization_client: Optional[ClaudeSummarizationClient] = None
+    _sqs_producer: Optional[SQSProducerAdapter] = None
 
     @classmethod
     def initialize(cls, config: Config) -> None:
@@ -62,6 +65,15 @@ class WorkerDependencies:
         )
         cls._embedding_client = OpenAIEmbeddingClient(
             api_key=config.openai_api_key
+        )
+        cls._summarization_client = ClaudeSummarizationClient(
+            api_key=config.anthropic_api_key
+        )
+        cls._sqs_producer = SQSProducerAdapter(
+            queue_url=config.sqs_queue_url,
+            aws_access_key_id=config.aws_access_key_id,
+            aws_secret_access_key=config.aws_secret_access_key,
+            region_name=config.aws_region
         )
 
     @classmethod
@@ -84,6 +96,20 @@ class WorkerDependencies:
         if cls._embedding_client is None:
             raise RuntimeError("Dependencies not initialized. Call initialize() first.")
         return cls._embedding_client
+
+    @classmethod
+    def get_summarization_client(cls) -> ClaudeSummarizationClient:
+        """Get Claude summarization client instance"""
+        if cls._summarization_client is None:
+            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
+        return cls._summarization_client
+
+    @classmethod
+    def get_sqs_producer(cls) -> SQSProducerAdapter:
+        """Get SQS producer instance for enqueueing tasks"""
+        if cls._sqs_producer is None:
+            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
+        return cls._sqs_producer
 
     @classmethod
     def get_uow_factory(cls) -> Callable[[], AbstractUnitOfWork]:
@@ -111,3 +137,5 @@ class WorkerDependencies:
         cls._config = None
         cls._db_client = None
         cls._embedding_client = None
+        cls._summarization_client = None
+        cls._sqs_producer = None

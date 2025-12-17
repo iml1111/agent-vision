@@ -4,6 +4,8 @@ Agent Orchestration Service
 Message processing and agent execution service.
 Handles async message enqueueing and agent response generation.
 """
+from typing import Optional
+
 from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
 from adapters.mongodb.collections.message_adapter import MessageAdapter
@@ -128,7 +130,8 @@ class AgentOrchestrationService:
     async def execute_agent_response(
         self,
         session_id: str,
-        user_message_id: str
+        user_message_id: str,
+        sqs_producer: Optional[SQSProducerAdapter] = None
     ) -> None:
         """
         Execute agent and save each event to DB in real-time.
@@ -139,6 +142,7 @@ class AgentOrchestrationService:
         Args:
             session_id: Session ID
             user_message_id: ID of the user message to respond to
+            sqs_producer: Optional SQS producer for enqueueing memory extraction
         """
         session = await self._get_session(session_id)
 
@@ -213,7 +217,7 @@ class AgentOrchestrationService:
             # Claude session expired - archive the system session
             logger.warning(f"Claude session expired for session {session_id}, archiving...")
             await self._session_repo.clear_claude_session_id(session_id)
-            await self._archive_session(session_id)
+            await self._archive_session(session_id, sqs_producer)
 
             # Save error message for user to see
             error_message = MessageEntity.create(
@@ -240,12 +244,17 @@ class AgentOrchestrationService:
             logger.error(f"Agent execution failed for session {session_id}: {e}")
             raise
 
-    async def _archive_session(self, session_id: str) -> bool:
+    async def _archive_session(
+        self,
+        session_id: str,
+        sqs_producer: Optional[SQSProducerAdapter] = None
+    ) -> bool:
         """
         Internal archive for SDK session expiration.
 
         Args:
             session_id: Session ID to archive
+            sqs_producer: Optional SQS producer for enqueueing memory extraction
 
         Returns:
             True if archived successfully
@@ -255,4 +264,14 @@ class AgentOrchestrationService:
         if session.status == SessionStatus.ARCHIVED:
             return True
 
-        return await self._session_repo.archive_session(session_id)
+        archived = await self._session_repo.archive_session(session_id)
+
+        # Enqueue memory extraction task if archive was successful
+        if archived and sqs_producer:
+            sqs_producer.enqueue_task(
+                task_type="archive_session_to_memory",
+                data={"session_id": session_id}
+            )
+            logger.info(f"Enqueued memory extraction for session {session_id}")
+
+        return archived
