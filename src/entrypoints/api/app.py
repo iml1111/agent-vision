@@ -9,6 +9,7 @@ from loguru import logger
 from config import Config
 from adapters.mongodb.client import MongoDBClient
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
+from adapters.aws.sqs_producer import SQSProducerAdapter
 from adapters.external.slack_client import SlackClient
 from adapters.external.notion_client import NotionClient
 from .middleware import setup_middleware
@@ -66,6 +67,17 @@ async def lifespan(app: FastAPI):
         app.state.notion_client = NotionClient(api_key=config.notion_api_key)
         logger.info("Notion Client initialized")
 
+    # Initialize SQS Producer for async message processing
+    app.state.sqs_producer = None
+    if config.sqs_queue_url:
+        app.state.sqs_producer = SQSProducerAdapter(
+            queue_url=config.sqs_queue_url,
+            aws_access_key_id=config.aws_access_key_id,
+            aws_secret_access_key=config.aws_secret_access_key,
+            region_name=config.aws_region
+        )
+        logger.info("SQS Producer initialized")
+
     # Initialize Agent Tool Dependencies
     _initialize_agent_tool_dependencies(app)
 
@@ -78,10 +90,10 @@ async def lifespan(app: FastAPI):
 
 def _initialize_agent_tool_dependencies(app: FastAPI):
     """Initialize dependencies for agent tools and hooks"""
-    from adapters.agent_tools.slack_tool import set_slack_dependencies
-    from adapters.agent_tools.notion_tool import set_notion_dependencies
-    from adapters.agent_tools.growth_memory_tool import set_growth_memory_dependencies
-    from adapters.agent_hooks.pre_tool_use import set_hook_dependencies
+    from adapters.agent.tools.slack_tool import set_slack_dependencies
+    from adapters.agent.tools.notion_tool import set_notion_dependencies
+    from adapters.agent.tools.growth_memory_tool import set_growth_memory_dependencies
+    from adapters.agent.hooks.pre_tool_use import set_hook_dependencies
     from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
     from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 

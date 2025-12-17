@@ -32,15 +32,6 @@ class MessageRequest(BaseModel):
     }}
 
 
-class ArchiveRequest(BaseModel):
-    """Request schema for archiving a session"""
-    reason: Optional[str] = Field(None, max_length=500, description="Optional archive reason")
-
-    model_config = {"json_schema_extra": {
-        "example": {
-            "reason": "Analysis complete, moving to implementation phase"
-        }
-    }}
 
 
 # =============================================================================
@@ -52,21 +43,34 @@ class SessionCreateResponse(BaseModel):
     """Response schema for session creation"""
     session_id: str
     status: str
-    goal: Optional[str] = None
     created_at: datetime
 
     model_config = {"json_schema_extra": {
         "example": {
             "session_id": "507f1f77bcf86cd799439011",
             "status": "active",
-            "goal": None,
             "created_at": "2025-01-15T10:30:00Z"
         }
     }}
 
 
+class MessageEnqueueResponse(BaseModel):
+    """Response schema when message is enqueued for async processing"""
+    session_id: str
+    status: str  # "processing"
+    user_message_id: str
+
+    model_config = {"json_schema_extra": {
+        "example": {
+            "session_id": "507f1f77bcf86cd799439011",
+            "status": "processing",
+            "user_message_id": "507f1f77bcf86cd799439012"
+        }
+    }}
+
+
 class MessageResponse(BaseModel):
-    """Response schema for message processing (agent response)"""
+    """Response schema for message with agent response (used for polling results)"""
     session_id: str
     role: str
     content: str
@@ -87,24 +91,20 @@ class MessageResponse(BaseModel):
 class SessionStatusResponse(BaseModel):
     """Response schema for session status"""
     session_id: str
-    goal: Optional[str] = None
     status: str
     message_count: int
     created_at: datetime
     updated_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
-    archive_reason: Optional[str] = None
 
     model_config = {"json_schema_extra": {
         "example": {
             "session_id": "507f1f77bcf86cd799439011",
-            "goal": "Analyze user retention for mobile users",
             "status": "active",
             "message_count": 5,
             "created_at": "2025-01-15T10:30:00Z",
             "updated_at": "2025-01-15T10:35:00Z",
-            "archived_at": None,
-            "archive_reason": None
+            "archived_at": None
         }
     }}
 
@@ -152,18 +152,3 @@ class MessagesResponse(BaseModel):
     }}
 
 
-class ArchiveResponse(BaseModel):
-    """Response schema for session archive"""
-    session_id: str
-    status: str
-    archived_at: datetime
-    message: str
-
-    model_config = {"json_schema_extra": {
-        "example": {
-            "session_id": "507f1f77bcf86cd799439011",
-            "status": "archived",
-            "archived_at": "2025-01-15T12:00:00Z",
-            "message": "Session archived successfully"
-        }
-    }}

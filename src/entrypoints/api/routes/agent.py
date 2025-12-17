@@ -3,21 +3,20 @@ Agent API Routes
 
 REST API endpoints for conversational agent session management.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from adapters.aws.sqs_producer import SQSProducerAdapter
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
 )
 from entrypoints.api.schemas.agent import (
-    ArchiveRequest,
-    ArchiveResponse,
+    MessageEnqueueResponse,
     MessageItem,
     MessageRequest,
-    MessageResponse,
     MessagesResponse,
     SessionCreateResponse,
     SessionStatusResponse,
@@ -29,49 +28,65 @@ from service_layer.application.agent_orchestration_service import AgentOrchestra
 router = APIRouter(prefix="/api/v1/agent", tags=["Agent"])
 
 
+def get_sqs_producer(request: Request) -> Optional[SQSProducerAdapter]:
+    """Get SQS Producer from app state"""
+    return getattr(request.app.state, "sqs_producer", None)
+
+
 @router.post(
     "/sessions",
     response_model=SessionCreateResponse,
     status_code=201,
     summary="Create Agent Session",
-    description="Create a new conversational agent session. Goal is set from the first message."
+    description="Create a new conversational agent session."
 )
 async def create_session(
     service: AgentOrchestrationService = Depends(get_orchestration_service)
 ):
-    """Create a new agent session (goal will be set from first message)"""
+    """Create a new agent session"""
     session = await service.create_session()
     return SessionCreateResponse(
         session_id=session.id,
         status=session.status.value,
-        goal=session.goal,
         created_at=session.created_at
     )
 
 
 @router.post(
     "/sessions/{session_id}/messages",
-    response_model=MessageResponse,
+    response_model=MessageEnqueueResponse,
     summary="Send Message",
-    description="Send a message to a session and receive agent response"
+    description="Send a message to a session. Returns immediately with processing status. Poll /status or /messages for agent response."
 )
 async def send_message(
     session_id: str,
     body: MessageRequest,
-    service: AgentOrchestrationService = Depends(get_orchestration_service)
+    service: AgentOrchestrationService = Depends(get_orchestration_service),
+    sqs_producer: Optional[SQSProducerAdapter] = Depends(get_sqs_producer)
 ):
-    """Send a message to an agent session"""
-    try:
-        result = await service.process_message(
-            session_id=session_id,
-            content=body.content
+    """
+    Send a message to an agent session.
+
+    The message is saved and enqueued for async processing.
+    Use GET /sessions/{session_id}/status to poll for completion.
+    Use GET /sessions/{session_id}/messages to retrieve the agent response.
+    """
+    if sqs_producer is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Message processing is temporarily unavailable. SQS not configured."
         )
-        return MessageResponse(
+
+    try:
+        result = await service.enqueue_message(
+            session_id=session_id,
+            content=body.content,
+            sqs_producer=sqs_producer
+        )
+        return MessageEnqueueResponse(
             session_id=result["session_id"],
-            role=result["role"],
-            content=result["content"],
-            tool_calls=result.get("tool_calls"),
-            created_at=datetime.fromisoformat(result["created_at"])
+            status=result["status"],
+            user_message_id=result["user_message_id"]
         )
     except AgentSessionNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -136,44 +151,14 @@ async def get_session_status(
         status = await service.get_session_status(session_id)
         return SessionStatusResponse(
             session_id=status["session_id"],
-            goal=status["goal"],
             status=status["status"],
             message_count=status["message_count"],
             created_at=datetime.fromisoformat(status["created_at"]),
             updated_at=datetime.fromisoformat(status["updated_at"]) if status.get("updated_at") else None,
-            archived_at=datetime.fromisoformat(status["archived_at"]) if status.get("archived_at") else None,
-            archive_reason=status.get("archive_reason")
+            archived_at=datetime.fromisoformat(status["archived_at"]) if status.get("archived_at") else None
         )
     except AgentSessionNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.post(
-    "/sessions/{session_id}/archive",
-    response_model=ArchiveResponse,
-    summary="Archive Session",
-    description="Archive a session for later reference"
-)
-async def archive_session(
-    session_id: str,
-    body: Optional[ArchiveRequest] = None,
-    service: AgentOrchestrationService = Depends(get_orchestration_service)
-):
-    """Archive a session"""
-    try:
-        reason = body.reason if body else None
-        await service.archive_session(session_id=session_id, reason=reason)
-
-        return ArchiveResponse(
-            session_id=session_id,
-            status="archived",
-            archived_at=datetime.now(timezone.utc),
-            message="Session archived successfully"
-        )
-    except AgentSessionNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except InvalidSessionStateError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete(

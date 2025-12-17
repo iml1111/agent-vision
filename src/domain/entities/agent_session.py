@@ -14,26 +14,21 @@ class AgentSessionEntity(BaseEntity):
     Agent session domain entity (conversational model)
 
     Represents a continuous conversation session with:
-    - Goal set from first message (optional until first message)
-    - Simple status tracking (ACTIVE, PAUSED, ARCHIVED)
+    - Simple status tracking (ACTIVE, PROCESSING, ARCHIVED)
     - No loop limits or workflow constraints
     """
 
     status: SessionStatus
     created_at: datetime
     id: Optional[str] = None
-    goal: Optional[str] = None
-    context: Optional[Dict[str, Any]] = None
+    sdk_session_id: Optional[str] = None  # Claude Agent SDK session ID for resume
     updated_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
-    archive_reason: Optional[str] = None
 
     @classmethod
     def create(cls) -> "AgentSessionEntity":
         """
         Factory method for creating new AgentSessionEntity
-
-        Goal will be set from the first message.
 
         Returns:
             New AgentSessionEntity instance
@@ -80,14 +75,6 @@ class AgentSessionEntity(BaseEntity):
 
     def validate(self) -> None:
         """Validate entity business rules"""
-        # goal is optional (set from first message)
-        if self.goal is not None and not isinstance(self.goal, str):
-            raise ValueError("Field 'goal' must be a string if provided")
-
-        # context is optional
-        if self.context is not None and not isinstance(self.context, dict):
-            raise ValueError("Field 'context' must be a dict if provided")
-
         if not isinstance(self.status, SessionStatus):
             raise ValueError("Field 'status' must be a SessionStatus enum")
 
@@ -122,7 +109,3 @@ class AgentSessionEntity(BaseEntity):
     def is_archived(self) -> bool:
         """Check if session is archived"""
         return self.status == SessionStatus.ARCHIVED
-
-    def has_goal(self) -> bool:
-        """Check if session has a goal set (first message received)"""
-        return self.goal is not None and len(self.goal.strip()) > 0

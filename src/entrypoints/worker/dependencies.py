@@ -7,6 +7,7 @@ from typing import Optional, Callable
 from config import Config
 from adapters.aws import SQSClient, SQSConsumerAdapter
 from adapters.mongodb.client import MongoDBClient
+from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.uow.mongo_unit_of_work import MongoUnitOfWork
 from domain.ports.unit_of_work import AbstractUnitOfWork
 
@@ -58,6 +59,7 @@ class WorkerDependencies:
 
     _config: Optional[Config] = None
     _db_client: Optional[MongoDBClient] = None
+    _embedding_client: Optional[OpenAIEmbeddingClient] = None
 
     @classmethod
     def initialize(cls, config: Config) -> None:
@@ -71,6 +73,9 @@ class WorkerDependencies:
         cls._db_client = MongoDBClient(
             uri=config.mongodb_uri,
             db_name=config.mongodb_name
+        )
+        cls._embedding_client = OpenAIEmbeddingClient(
+            api_key=config.openai_api_key
         )
 
     @classmethod
@@ -86,6 +91,13 @@ class WorkerDependencies:
         if cls._db_client is None:
             raise RuntimeError("Dependencies not initialized. Call initialize() first.")
         return cls._db_client
+
+    @classmethod
+    def get_embedding_client(cls) -> OpenAIEmbeddingClient:
+        """Get OpenAI embedding client instance"""
+        if cls._embedding_client is None:
+            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
+        return cls._embedding_client
 
     @classmethod
     def get_uow_factory(cls) -> Callable[[], AbstractUnitOfWork]:
@@ -112,3 +124,4 @@ class WorkerDependencies:
             cls._db_client.close()
         cls._config = None
         cls._db_client = None
+        cls._embedding_client = None

@@ -79,6 +79,12 @@ class InvalidSessionStateError(AgentSessionError):
     pass
 
 
+class SDKSessionExpiredError(AgentSessionError):
+    """Claude Agent SDK session has expired and cannot be resumed"""
+
+    pass
+
+
 # =============================================================================
 # External Service Exceptions (Agent-specific)
 # =============================================================================

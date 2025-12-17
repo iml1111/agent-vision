@@ -65,34 +65,7 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             logger.error(f"Failed to update status for session_id '{session_id}': {e}")
             return False
 
-    async def update_goal(
-        self,
-        session_id: str,
-        goal: str
-    ) -> bool:
-        """Update session goal (set from first message)"""
-        update_doc = {
-            "$set": {
-                "goal": goal,
-                "updated_at": datetime.now(timezone.utc)
-            }
-        }
-
-        try:
-            result = await self._adapter.update_one(
-                {"_id": ObjectId(session_id)},
-                update_doc
-            )
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"Failed to update goal for session_id '{session_id}': {e}")
-            return False
-
-    async def archive_session(
-        self,
-        session_id: str,
-        reason: Optional[str] = None
-    ) -> bool:
+    async def archive_session(self, session_id: str) -> bool:
         """Archive a session"""
         now = datetime.now(timezone.utc)
         update_doc = {
@@ -102,8 +75,6 @@ class MongoAgentSessionRepository(AgentSessionRepository):
                 "updated_at": now
             }
         }
-        if reason:
-            update_doc["$set"]["archive_reason"] = reason
 
         try:
             result = await self._adapter.update_one(
@@ -137,4 +108,46 @@ class MongoAgentSessionRepository(AgentSessionRepository):
             return result.deleted_count > 0
         except Exception as e:
             logger.error(f"Failed to delete session_id '{session_id}': {e}")
+            return False
+
+    async def update_sdk_session_id(
+        self,
+        session_id: str,
+        sdk_session_id: str
+    ) -> bool:
+        """Update SDK session ID for resume capability"""
+        update_doc = {
+            "$set": {
+                "sdk_session_id": sdk_session_id,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+
+        try:
+            result = await self._adapter.update_one(
+                {"_id": ObjectId(session_id)},
+                update_doc
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Failed to update SDK session ID for '{session_id}': {e}")
+            return False
+
+    async def clear_sdk_session_id(self, session_id: str) -> bool:
+        """Clear SDK session ID when session expires"""
+        update_doc = {
+            "$set": {
+                "sdk_session_id": None,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+
+        try:
+            result = await self._adapter.update_one(
+                {"_id": ObjectId(session_id)},
+                update_doc
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Failed to clear SDK session ID for '{session_id}': {e}")
             return False

@@ -60,35 +60,12 @@ class AgentSessionRepository(ABC):
         pass
 
     @abstractmethod
-    async def update_goal(
-        self,
-        session_id: str,
-        goal: str
-    ) -> bool:
-        """
-        Update session goal (set from first message)
-
-        Args:
-            session_id: Session ID to update
-            goal: Goal text (from first user message)
-
-        Returns:
-            True if update was successful
-        """
-        pass
-
-    @abstractmethod
-    async def archive_session(
-        self,
-        session_id: str,
-        reason: Optional[str] = None
-    ) -> bool:
+    async def archive_session(self, session_id: str) -> bool:
         """
         Archive a session
 
         Args:
             session_id: Session ID to archive
-            reason: Optional archive reason
 
         Returns:
             True if archive was successful
@@ -123,5 +100,36 @@ class AgentSessionRepository(ABC):
 
         Returns:
             True if deletion was successful
+        """
+        pass
+
+    @abstractmethod
+    async def update_sdk_session_id(
+        self,
+        session_id: str,
+        sdk_session_id: str
+    ) -> bool:
+        """
+        Update SDK session ID for resume capability
+
+        Args:
+            session_id: System session ID
+            sdk_session_id: Claude Agent SDK session ID
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    async def clear_sdk_session_id(self, session_id: str) -> bool:
+        """
+        Clear SDK session ID when session expires
+
+        Args:
+            session_id: System session ID
+
+        Returns:
+            True if update was successful
         """
         pass

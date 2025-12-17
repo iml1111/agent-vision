@@ -4,7 +4,7 @@ MCP Server Factory for Growth Agent
 Creates an in-process SDK MCP server with all growth tools registered.
 """
 from claude_code_sdk import create_sdk_mcp_server
-from adapters.agent_tools import GROWTH_TOOLS
+from adapters.agent.tools import GROWTH_TOOLS
 
 
 def create_growth_agent_mcp_server():

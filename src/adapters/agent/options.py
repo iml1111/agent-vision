@@ -3,16 +3,16 @@ Claude Agent Options Factory for Growth Agent
 
 Creates ClaudeAgentOptions with proper configuration for growth hacking workflows.
 """
-from typing import Dict, Any, Optional
+from typing import Optional
 from pathlib import Path
 from claude_code_sdk import ClaudeAgentOptions, HookMatcher
-from adapters.agent_tools import GROWTH_TOOL_NAMES
-from adapters.agent_hooks.pre_tool_use import (
+from adapters.agent.tools import GROWTH_TOOL_NAMES
+from adapters.agent.hooks.pre_tool_use import (
     validate_slack_allowlist,
     validate_notion_allowlist,
     log_tool_call,
 )
-from adapters.agent_hooks.post_tool_use import (
+from adapters.agent.hooks.post_tool_use import (
     capture_observation,
     audit_log,
 )
@@ -52,8 +52,8 @@ def create_growth_agent_options(
     max_turns: int = 50,
     max_budget_usd: Optional[float] = None,
     model: str = "claude-sonnet-4-5",
-    session_context: Optional[Dict[str, Any]] = None,
-    cwd: Optional[Path] = None
+    cwd: Optional[Path] = None,
+    resume_session_id: Optional[str] = None
 ) -> ClaudeAgentOptions:
     """
     Create ClaudeAgentOptions configured for growth agent.
@@ -63,15 +63,12 @@ def create_growth_agent_options(
         max_turns: Maximum number of agent turns (default 50)
         max_budget_usd: Optional budget limit in USD
         model: Claude model to use (default: claude-sonnet-4-5)
-        session_context: Optional context dict passed to hooks
         cwd: Optional working directory
+        resume_session_id: Optional SDK session ID to resume
 
     Returns:
         Configured ClaudeAgentOptions
     """
-    # Build hook context with session info
-    hook_context = session_context or {}
-
     # Create options
     options = ClaudeAgentOptions(
         # MCP Server configuration
@@ -136,6 +133,10 @@ def create_growth_agent_options(
     # Add optional working directory
     if cwd is not None:
         options.cwd = cwd
+
+    # Add optional resume session ID
+    if resume_session_id is not None:
+        options.resume = resume_session_id
 
     return options
 

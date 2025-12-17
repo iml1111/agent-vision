@@ -9,10 +9,10 @@
 Agent Vision은 Growth Hacking을 위한 대화형 AI 에이전트 백엔드 시스템입니다.
 DDD + Hexagonal Architecture 패턴을 따릅니다.
 
-**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | OpenAI Embeddings
+**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | OpenAI Embeddings | AWS SQS
 
 **핵심 기능**:
-- Conversational Agent: 연속 대화 기반 Growth 분석
+- Conversational Agent: 연속 대화 기반 Growth 분석 (Async Worker 처리)
 - Growth Memory: Vector Search 기반 RAG
 - External Tools: Slack, Notion, EventLog
 
@@ -39,50 +39,103 @@ Entity는 ID로 식별 (`__eq__`, `__hash__`), Set/Dict 키로 사용 가능
 
 ```
 src/
-├── config/              # Configuration modules (empty, for future use)
+├── config.py            # Pydantic BaseSettings (Allowlist 포함)
 ├── domain/              # Pure Python (no external dependencies)
-│   ├── entities/        # Domain entities with identity-based equality
-│   │   ├── agent_session.py    # Agent session entity
+│   ├── entities/
+│   │   ├── agent_session.py    # Session entity
 │   │   ├── message.py          # Conversation message entity
-│   │   └── growth_memory.py    # Growth memory entity (with embeddings)
-│   ├── ports/           # Abstract interfaces (repositories)
-│   └── value_objects/   # Enums and value objects
-│       └── agent_enums.py      # SessionStatus, MessageRole, GrowthMemoryType
-├── service_layer/       # Use Cases
+│   │   └── growth_memory.py    # Growth memory entity (embeddings)
+│   ├── ports/           # Repository interfaces
+│   │   ├── agent_session.py
+│   │   ├── message.py
+│   │   └── growth_memory.py
+│   ├── value_objects/
+│   │   ├── agent_enums.py      # SessionStatus, MessageRole, GrowthMemoryType
+│   │   └── agent_types.py      # ToolCallVO, AgentResponse, etc.
+│   └── exceptions.py    # Domain exceptions
+├── service_layer/
 │   └── application/
-│       ├── agent_orchestration_service.py  # Conversational agent orchestration
-│       └── growth_memory_service.py        # RAG memory management
-├── adapters/            # Infrastructure implementations
-│   ├── openai/          # OpenAI embedding client
-│   ├── external/        # Slack, Notion API clients
+│       └── agent_orchestration_service.py  # enqueue_message + execute_agent_response
+├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
-│   │   ├── mcp_server.py    # MCP server with tools
+│   │   ├── client.py        # GrowthAgentClient wrapper
 │   │   ├── options.py       # Agent options configuration
-│   │   └── client.py        # GrowthAgentClient wrapper
-│   ├── agent_tools/     # Custom MCP tools
-│   │   ├── eventlog_tool.py     # MongoDB analytics queries
-│   │   ├── slack_tool.py        # Slack channel access
-│   │   ├── notion_tool.py       # Notion database access
-│   │   └── growth_memory_tool.py # Vector search RAG
-│   ├── agent_hooks/     # Agent lifecycle hooks
-│   │   ├── pre_tool_use.py     # Allowlist validation
-│   │   ├── post_tool_use.py    # Audit logging
-│   │   └── session_hooks.py    # Session end handling
+│   │   ├── mcp_server.py    # MCP server with tools
+│   │   ├── hooks/           # Agent lifecycle hooks
+│   │   │   ├── pre_tool_use.py     # Allowlist validation
+│   │   │   ├── post_tool_use.py    # Audit logging
+│   │   │   └── session_hooks.py    # Session end handling
+│   │   └── tools/           # Custom MCP tools
+│   │       ├── eventlog_tool.py
+│   │       ├── slack_tool.py
+│   │       ├── notion_tool.py
+│   │       └── growth_memory_tool.py
 │   ├── mongodb/         # MongoDB client, collections, adapters
 │   ├── repositories/    # Repository implementations
+│   ├── aws/             # SQS producer/consumer
+│   ├── openai/          # Embedding client
+│   ├── external/        # Slack, Notion API clients
 │   └── uow/             # Unit of Work implementation
-├── entrypoints/         # Application entry points
+├── entrypoints/
 │   ├── api/             # FastAPI
-│   │   ├── routes/agent.py     # Agent session API endpoints
-│   │   └── schemas/agent.py    # Request/Response schemas
+│   │   ├── app.py           # Lifespan, middleware, routes
+│   │   ├── routes/agent.py  # Agent session endpoints
+│   │   └── schemas/agent.py # Request/Response schemas
 │   ├── worker/          # SQS Worker
+│   │   ├── app.py           # Worker entry point
+│   │   ├── dependencies.py  # Worker dependencies (db, embedding)
+│   │   └── tasks/
+│   │       └── agent_tasks.py  # @task process_agent_response
 │   └── cli/             # CLI Jobs
-├── config.py            # Pydantic BaseSettings
-└── __about__.py         # Version info
+└── __about__.py
 
 tests/
-├── integration/         # Repository & service integration tests
-└── e2e/                 # API endpoint tests
+├── integration/
+└── e2e/
+```
+
+---
+
+## Async Worker Pattern (SQS)
+
+API는 빠른 응답을 위해 메시지만 저장 후 SQS에 enqueue. Worker가 실제 Agent 실행.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                           API Layer                             │
+├─────────────────────────────────────────────────────────────────┤
+│  POST /messages                                                 │
+│  1. Validate session state                                      │
+│  2. Save user message to DB                                     │
+│  3. Set status → PROCESSING                                     │
+│  4. Enqueue to SQS (message_group_id=session_id)               │
+│  5. Return {status: "processing", user_message_id: "..."}      │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ SQS FIFO Queue
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         Worker Layer                            │
+├─────────────────────────────────────────────────────────────────┤
+│  @task process_agent_response(data)                             │
+│  1. Load session and messages                                   │
+│  2. Build conversation context                                  │
+│  3. Execute GrowthAgentClient (Claude Agent SDK)               │
+│  4. Save assistant message to DB                                │
+│  5. Set status → ACTIVE                                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Service Methods
+
+```python
+# API용 - 빠른 응답
+async def enqueue_message(session_id, content, sqs_producer) -> Dict:
+    # Save message + Set PROCESSING + Enqueue to SQS
+    return {"status": "processing", "user_message_id": "..."}
+
+# Worker용 - 무거운 작업
+async def execute_agent_response(session_id, user_message_id) -> None:
+    # Execute agent + Save response + Set ACTIVE
 ```
 
 ---
@@ -90,166 +143,101 @@ tests/
 ## Key Design Patterns
 
 ### 1. Async/Await Pattern
-**전체 프로젝트에서 async/await 일관 사용**
-
 ```python
-# Repository Layer
 async def create(self, entity: AgentSessionEntity) -> str:
     doc = BaseMongoAdapter.prepare_for_insert(entity.to_dict())
     result = await self._adapter.insert_one(doc)
     return str(result.inserted_id)
-
-# Service Layer (단일 read: 직접 repository 호출)
-async def get_session(self, session_id: str) -> AgentSessionEntity:
-    session = await self._session_repo.get_by_id(session_id)
-    if not session:
-        raise AgentSessionNotFoundError(f"Session {session_id} not found")
-    return session
 ```
 
----
-
 ### 2. BaseEntity Pattern
-**요구사항**: `@dataclass(eq=False, frozen=True)`, `from_dict()`, `validate()`, Identity-based equality
-
 ```python
 @dataclass(eq=False, frozen=True)
 class AgentSessionEntity(BaseEntity):
     status: SessionStatus
     created_at: datetime
     id: Optional[str] = None
-    goal: Optional[str] = None      # 첫 메시지에서 자동 설정
-    context: Optional[Dict[str, Any]] = None
+    sdk_session_id: Optional[str] = None  # Claude SDK session ID
     updated_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
-    archive_reason: Optional[str] = None
 
     @classmethod
     def create(cls) -> "AgentSessionEntity":
-        """Factory method - goal is set from first message"""
-        return cls(
-            status=SessionStatus.ACTIVE,
-            created_at=datetime.now(timezone.utc)
-        )
-
-    def has_goal(self) -> bool:
-        """Check if session has a goal set"""
-        return self.goal is not None and len(self.goal.strip()) > 0
+        return cls(status=SessionStatus.ACTIVE, created_at=datetime.now(timezone.utc))
 
     def __eq__(self, other): return self.id == other.id
     def __hash__(self): return hash(self.id)
 ```
 
----
-
 ### 3. Repository Pattern
-**구조**: ABC Interface (Port) → MongoDB Implementation (Adapter)
-
 ```python
 # Port (domain/ports/agent_session.py)
 class AgentSessionRepository(ABC):
     @abstractmethod
-    async def create(self, entity: AgentSessionEntity) -> str: ...
-
+    async def create(self, entity) -> str: ...
     @abstractmethod
-    async def get_by_id(self, session_id: str) -> Optional[AgentSessionEntity]: ...
+    async def get_by_id(self, session_id) -> Optional[AgentSessionEntity]: ...
 
 # Adapter (adapters/repositories/mongodb/agent_session.py)
 class MongoAgentSessionRepository(AgentSessionRepository):
-    async def create(self, entity: AgentSessionEntity) -> str:
+    async def create(self, entity):
         doc = BaseMongoAdapter.prepare_for_insert(entity.to_dict())
         result = await self._adapter.insert_one(doc)
         return str(result.inserted_id)
 ```
 
----
-
 ### 4. Unit of Work (UoW) Pattern
-**목적**: 다중 write 작업의 원자성 보장
-
-**원칙**:
-- ✅ 2+ write가 원자적 처리 필요 시만 사용
-- ❌ 단일 read/write는 직접 repository 호출
+2+ write가 원자적 처리 필요 시만 사용. 단일 read/write는 직접 repository 호출.
 
 ```python
-# 다중 write: UoW
 async with MongoUnitOfWork(db_client) as uow:
     await uow.session_repo.create(session_entity)
     await uow.message_repo.create(message_entity)
     await uow.commit()
-
-# 단일 read: 직접 호출
-session = await self._session_repo.get_by_id(session_id)
 ```
-
-**요구사항**: MongoDB Replica Set (트랜잭션 지원)
-
----
 
 ### 5. Exception Pattern
-**Domain 예외는 순수 Python, 각 API Route에서 HTTPException으로 변환**
+Domain 예외는 순수 Python, API Route에서 HTTPException으로 변환.
 
 ```python
-# domain/exceptions.py - 순수 Python (HTTP 개념 없음)
-class DomainError(Exception):
-    """Base exception for all domain errors"""
-    pass
+# domain/exceptions.py
+class AgentSessionNotFoundError(EntityNotFoundError): pass
+class InvalidSessionStateError(DomainError): pass
+class SDKSessionExpiredError(DomainError): pass
 
-class EntityNotFoundError(DomainError):
-    """Entity with given ID does not exist"""
-    pass
-
-class AgentSessionNotFoundError(EntityNotFoundError):
-    """Agent session with given ID does not exist"""
-    pass
-
-# API Route - try-except + HTTPException 변환
-@router.get("/{session_id}")
-async def get_session(session_id: str, service = Depends(get_orchestration_service)):
-    try:
-        session = await service.get_session(session_id)
-    except AgentSessionNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return SessionResponse(...)
-
-# 5XX 에러는 @app.exception_handler(Exception)이 자동 처리
+# API Route
+try:
+    result = await service.enqueue_message(...)
+except AgentSessionNotFoundError as e:
+    raise HTTPException(status_code=404, detail=str(e))
+except InvalidSessionStateError as e:
+    raise HTTPException(status_code=400, detail=str(e))
 ```
 
----
-
 ### 6. Lifespan Singleton Pattern
-**목적**: 무거운 리소스(DB 커넥션 풀)를 앱 시작 시 1회 초기화
-
 ```python
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize singletons
-    app.state.db_client = MongoDBClient(uri=config.mongodb_uri, ...)
+    app.state.db_client = MongoDBClient(...)
+    app.state.openai_client = OpenAIEmbeddingClient(...)
+    app.state.sqs_producer = SQSProducerAdapter(...)  # For async processing
+    _initialize_agent_tool_dependencies(app)
     yield
-    # Shutdown: Cleanup
     app.state.db_client.close()
 ```
 
----
-
-### 7. Task/Job Registry Pattern
-**Worker**: `@task` 데코레이터로 SQS 메시지 핸들러 등록
-**CLI**: `@job` 데코레이터로 cronjob/background job 등록
-
+### 7. Task Registry Pattern
 ```python
-# Worker task (Write 예시)
+# entrypoints/worker/tasks/agent_tasks.py
 @task
-async def create_session_task(data: Dict[str, Any]) -> None:
+async def process_agent_response(data: Dict[str, Any]) -> None:
+    db_client = WorkerDependencies.get_db_client()
+    embedding_client = WorkerDependencies.get_embedding_client()
     service = AgentOrchestrationService(db_client, embedding_client)
-    session = await service.create_session()  # 빈 세션 생성, goal은 첫 메시지에서 설정
-    await service.process_message(session.id, data["initial_message"])
-
-# CLI job (Read 예시)
-@job
-async def export_session(session_id: str) -> None:
-    service = AgentOrchestrationService(db_client, embedding_client)
-    session = await service.get_session(session_id)
-    logger.info(f"Exporting session: {session.goal}")
+    await service.execute_agent_response(
+        session_id=data["session_id"],
+        user_message_id=data["user_message_id"]
+    )
 ```
 
 ---
@@ -261,50 +249,53 @@ async def export_session(session_id: str) -> None:
 ./void run api  # uvicorn with --reload
 ```
 
-**구조**: `app.py` → `lifespan` → `middleware` → `exception_handlers` → `routes`
-
 ### Worker (SQS Consumer)
 ```bash
 ./void run worker
 ```
-
-**구조**: `app.py` → `dependencies.initialize()` → `register_all_tasks()` → `consumer.start()`
 
 ### CLI (Click)
 ```bash
 ./void run job <JOB_NAME>
 ```
 
-**구조**: `app.py` → `dependencies.initialize()` → `register_all_jobs()` → `handler.execute()`
-
 ---
 
-## Current API Endpoints
+## API Endpoints
 
-### Core Endpoints
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
-
-### Agent Endpoints (Conversational)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/agent/sessions` | Create empty session (goal = null) |
-| POST | `/api/v1/agent/sessions/{id}/messages` | Send message & get agent response (first message becomes goal) |
+| POST | `/api/v1/agent/sessions` | Create session |
+| POST | `/api/v1/agent/sessions/{id}/messages` | Send message (async, returns immediately) |
 | GET | `/api/v1/agent/sessions/{id}/messages` | Get conversation history |
-| GET | `/api/v1/agent/sessions/{id}/status` | Get session status |
-| POST | `/api/v1/agent/sessions/{id}/archive` | Archive session |
+| GET | `/api/v1/agent/sessions/{id}/status` | Get session status (poll for completion) |
 | DELETE | `/api/v1/agent/sessions/{id}` | Delete session |
 
-### Session Status Flow
+### Client Usage Flow
+
 ```
-POST /sessions → [active, goal=null]
+1. POST /sessions → {"session_id": "...", "status": "active"}
+
+2. POST /sessions/{id}/messages
+   Body: {"content": "분석해줘"}
+   Response: {"status": "processing", "user_message_id": "..."}
+
+3. GET /sessions/{id}/status (polling)
+   Response: {"status": "processing"} or {"status": "active"}
+
+4. GET /sessions/{id}/messages (when status=active)
+   Response: [user_message, assistant_message]
+```
+
+### Session Status Flow
+
+```
+POST /sessions → [active]
        ↓
-POST /messages → first message sets goal → [active, goal="..."]
+POST /messages → [processing] → Worker completes → [active]
        ↓
-POST /messages → continuous conversation → [active]
-       ↓
-POST /archive → [archived] (can be referenced later)
+SDK Session Expired → [archived] (automatic)
        ↓
 DELETE → permanently removed
 ```
@@ -313,14 +304,12 @@ DELETE → permanently removed
 | Status | Description |
 |--------|-------------|
 | `active` | 대화 진행 중 (기본 상태) |
-| `paused` | 일시 중지 |
-| `archived` | 보관됨 (다시 활성화 가능) |
+| `processing` | Worker에서 응답 생성 중 (사용자 입력 불가) |
+| `archived` | SDK 세션 만료로 보관됨 (재활성화 불가) |
 
 ---
 
 ## Configuration
-
-환경변수 (`.env` 파일 또는 시스템 환경변수). Config 클래스에 allowlist 포함:
 
 ```bash
 # Core
@@ -338,7 +327,7 @@ SLACK_CHANNEL_ALLOWLIST='[{"channel_id": "C123", "channel_name": "growth-data"}]
 NOTION_DATABASE_ALLOWLIST='[{"database_id": "db123", "database_name": "Experiments"}]'
 NOTION_PAGE_ALLOWLIST='[{"page_id": "page123", "page_name": "Growth Playbook"}]'
 
-# AWS (Optional)
+# AWS SQS (Required for async processing)
 AWS_ACCESS_KEY_ID=xxx
 AWS_SECRET_ACCESS_KEY=xxx
 AWS_REGION=ap-northeast-2
@@ -350,119 +339,81 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 ## Adding New Features
 
 ### New Entity
-1. `domain/entities/xxx.py` - Entity 정의 (`create()` factory method 포함)
-2. `domain/ports/xxx.py` - Repository ABC 정의
-3. `domain/value_objects/xxx_enums.py` - Enum 정의 (필요시)
-4. `adapters/mongodb/collections/xxx_adapter.py` - Collection adapter
-5. `adapters/repositories/mongodb/xxx.py` - Repository 구현
-6. `adapters/uow/mongo_unit_of_work.py` - UoW에 repository 추가
+1. `domain/entities/xxx.py` - Entity with `create()` factory
+2. `domain/ports/xxx.py` - Repository ABC
+3. `adapters/mongodb/collections/xxx_adapter.py` - Collection adapter
+4. `adapters/repositories/mongodb/xxx.py` - Repository impl
 
 ### New API Endpoint
-1. `entrypoints/api/schemas/xxx.py` - Request/Response schemas
+1. `entrypoints/api/schemas/xxx.py` - Schemas
 2. `entrypoints/api/routes/xxx.py` - Route handlers
 3. `entrypoints/api/routes/__init__.py` - Router 등록
-4. `entrypoints/api/dependencies/services.py` - Service dependency 추가
 
 ### New Worker Task
-1. `entrypoints/worker/tasks/xxx.py` - @task 데코레이터로 핸들러 정의
-2. `entrypoints/worker/tasks/__init__.py` - TASK_MODULES에 추가
-
-### New CLI Job
-1. `entrypoints/cli/jobs/xxx.py` - @job 데코레이터로 핸들러 정의
-2. `entrypoints/cli/jobs/__init__.py` - JOB_MODULES에 추가
-
-### New Exception
-1. `domain/exceptions.py` - `DomainError` 또는 적절한 기본 예외 상속
-2. `domain/__init__.py` - 예외 export 추가
-3. API Route에서 `try-except` + `HTTPException` 변환
+1. `entrypoints/worker/tasks/xxx.py` - @task 핸들러
+2. `entrypoints/worker/tasks/__init__.py` - TASK_MODULES 추가
 
 ### New Agent Tool
-1. `adapters/agent_tools/xxx_tool.py` - `@tool` 데코레이터로 함수 정의
-2. `adapters/agent/mcp_server.py` - MCP 서버에 tool 등록
-3. `adapters/agent/options.py` - `GROWTH_TOOL_NAMES`에 tool 이름 추가
+1. `adapters/agent/tools/xxx_tool.py` - @tool 함수
+2. `adapters/agent/mcp_server.py` - MCP 서버 등록
+3. `adapters/agent/tools/__init__.py` - GROWTH_TOOLS 추가
 
 ---
 
 ## Agent System Architecture
 
-### Conversational Agent Flow
+### GrowthAgentClient Flow
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   AgentOrchestrationService             │
-├─────────────────────────────────────────────────────────┤
-│  Session Create → Message Processing → Response         │
-│  (Continuous conversation without workflow boundaries)  │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                    GrowthAgentClient                    │
-│  (Claude Agent SDK wrapper with hooks & tools)          │
-├─────────────────────────────────────────────────────────┤
-│  PreToolUse Hooks:    Allowlist validation              │
-│  PostToolUse Hooks:   Audit logging                     │
-│  Session Hooks:       Memory summarization              │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                    MCP Server (Tools)                   │
-├─────────────────────────────────────────────────────────┤
-│  EventLog:       funnel_analysis, retention_analysis    │
-│  Slack:          list_channels, get_messages            │
-│  Notion:         list_resources, query_database         │
-│  GrowthMemory:   search_memory, get_recent              │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│              AgentOrchestrationService               │
+│  execute_agent_response()                            │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│                 GrowthAgentClient                    │
+│  (Claude Agent SDK wrapper)                          │
+├──────────────────────────────────────────────────────┤
+│  PreToolUse:   Allowlist validation                  │
+│  PostToolUse:  Audit logging                         │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│                 MCP Server (Tools)                   │
+├──────────────────────────────────────────────────────┤
+│  EventLog:      funnel_analysis, retention_analysis  │
+│  Slack:         list_channels, get_messages          │
+│  Notion:        list_resources, query_database       │
+│  GrowthMemory:  search_memory, get_recent            │
+└──────────────────────────────────────────────────────┘
 ```
 
-### Message Entity
+### SDK Session Synchronization
 
-```python
-@dataclass(eq=False, frozen=True)
-class MessageEntity(BaseEntity):
-    session_id: str
-    role: MessageRole          # user | assistant | system
-    content: str
-    created_at: datetime
-    id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None  # tool_calls, errors, etc.
 ```
+[First Message]
+session.sdk_session_id = None
+GrowthAgentClient(resume_session_id=None) → new SDK session
+Save sdk_session_id to database
 
-### Growth Memory (RAG)
+[Subsequent Messages]
+GrowthAgentClient(resume_session_id="sdk-xxx") → resumes SDK session
+SDK maintains conversation context
 
-```python
-# Vector search for relevant context
-memories = await memory_service.search_relevant_memories(
-    query="user retention mobile",
-    limit=5
-)
-
-# Session summarization to long-term memory
-await memory_service.distill_session_to_memory(session_id)
+[SDK Session Expired]
+SDKSessionExpiredError → archive system session
+Return error: "Session expired, create new session"
 ```
-
-### Allowlist Enforcement
-
-Server-side blocking via PreToolUse hooks (allowlist integrated into Config):
-- Slack: Only whitelisted channel IDs
-- Notion: Only whitelisted database/page IDs
-- Violations return deny decision (not exception)
 
 ---
 
 ## Testing
 
 ```bash
-# Run all tests
-pytest
-
-# Run integration tests (requires MongoDB)
-pytest tests/integration/ -v
-
-# Run E2E tests
-pytest tests/e2e/ -v
-
-# Run with coverage
-pytest --cov=src --cov-report=html
+pytest                          # All tests
+pytest tests/integration/ -v    # Integration (requires MongoDB)
+pytest tests/e2e/ -v            # E2E tests
+pytest --cov=src               # Coverage
 ```

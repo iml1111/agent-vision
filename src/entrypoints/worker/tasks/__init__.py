@@ -9,10 +9,12 @@ from loguru import logger
 from entrypoints.worker.task_registry import TaskRegistry
 
 # Import all task modules here
-# from . import some_task
+from . import agent_tasks
 
 # All task modules
-TASK_MODULES = []
+TASK_MODULES = [
+    agent_tasks,
+]
 
 
 def register_all_tasks() -> None:
