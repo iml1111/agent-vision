@@ -2,7 +2,6 @@
 from .eventlog_tool import funnel_analysis, retention_analysis, segment_analysis
 from .slack_tool import list_slack_channels, get_slack_messages
 from .notion_tool import list_notion_resources, query_notion_database, get_notion_page
-from .growth_memory_tool import search_growth_memory, get_recent_memories
 
 # All available tools for the growth agent
 GROWTH_TOOLS = [
@@ -17,9 +16,6 @@ GROWTH_TOOLS = [
     list_notion_resources,
     query_notion_database,
     get_notion_page,
-    # Growth Memory tools
-    search_growth_memory,
-    get_recent_memories,
 ]
 
 # Tool names for allowed_tools configuration
@@ -32,8 +28,6 @@ GROWTH_TOOL_NAMES = [
     "mcp__growth-tools__list_notion_resources",
     "mcp__growth-tools__query_notion_database",
     "mcp__growth-tools__get_notion_page",
-    "mcp__growth-tools__search_growth_memory",
-    "mcp__growth-tools__get_recent_memories",
 ]
 
 __all__ = [
@@ -47,6 +41,4 @@ __all__ = [
     "list_notion_resources",
     "query_notion_database",
     "get_notion_page",
-    "search_growth_memory",
-    "get_recent_memories",
 ]

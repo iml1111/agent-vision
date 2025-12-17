@@ -1,5 +1,6 @@
 """Agent Value Objects - Types for agent communication"""
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
 from enum import Enum
 
@@ -47,3 +48,30 @@ class AgentResponse:
     tool_calls: Tuple[ToolCallVO, ...]  # Tuple for immutability
     sdk_session_id: Optional[str]
     message_count: int = 0
+
+
+@dataclass(frozen=True)
+class SessionStatusVO:
+    """
+    Session status information Value Object
+
+    Replaces Dict[str, Any] return from get_session_status().
+    """
+    session_id: str
+    status: str
+    message_count: int
+    created_at: datetime
+    updated_at: Optional[datetime]
+    archived_at: Optional[datetime]
+
+
+@dataclass(frozen=True)
+class MessageEnqueueResultVO:
+    """
+    Message enqueue result Value Object
+
+    Replaces Dict[str, Any] return from enqueue_message().
+    """
+    session_id: str
+    status: str
+    user_message_id: str

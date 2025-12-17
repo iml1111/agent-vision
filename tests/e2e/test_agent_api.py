@@ -4,7 +4,6 @@ End-to-End Tests for Agent API
 Tests API endpoints with real HTTP requests using TestClient.
 """
 import pytest
-from datetime import datetime
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from fastapi.testclient import TestClient
@@ -12,9 +11,6 @@ from httpx import AsyncClient, ASGITransport
 
 from entrypoints.api.app import create_app
 from config import Config
-from adapters.mongodb.client import MongoDBClient
-from adapters.openai.embedding_client import OpenAIEmbeddingClient
-from config.allowlist import AllowlistConfig
 
 
 @pytest.fixture
@@ -114,9 +110,8 @@ class TestSessionEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["session_id"] == session_id
-        assert data["status"] == "created"
-        assert data["current_loop_count"] == 0
-        assert "observation_summary" in data
+        assert data["status"] == "active"
+        assert data["message_count"] == 0
 
     def test_get_session_status_not_found(self, client):
         """Test getting status for non-existent session."""

@@ -139,27 +139,3 @@ def create_growth_agent_options(
         options.resume = resume_session_id
 
     return options
-
-
-def create_minimal_options(
-    mcp_server,
-    model: str = "claude-sonnet-4-5"
-) -> ClaudeAgentOptions:
-    """
-    Create minimal ClaudeAgentOptions for testing.
-
-    Args:
-        mcp_server: The SDK MCP server with growth tools
-        model: Claude model to use
-
-    Returns:
-        Minimal ClaudeAgentOptions without hooks
-    """
-    return ClaudeAgentOptions(
-        mcp_servers={"growth-tools": mcp_server},
-        allowed_tools=GROWTH_TOOL_NAMES,
-        permission_mode="acceptEdits",
-        system_prompt=GROWTH_AGENT_SYSTEM_PROMPT,
-        model=model,
-        max_turns=10,
-    )

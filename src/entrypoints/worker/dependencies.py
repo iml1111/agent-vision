@@ -5,25 +5,11 @@ Dependency injection for worker components and task handlers
 """
 from typing import Optional, Callable
 from config import Config
-from adapters.aws import SQSClient, SQSConsumerAdapter
+from adapters.aws import SQSConsumerAdapter
 from adapters.mongodb.client import MongoDBClient
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.uow.mongo_unit_of_work import MongoUnitOfWork
 from domain.ports.unit_of_work import AbstractUnitOfWork
-
-
-def get_sqs_client(config: Config) -> SQSClient:
-    """
-    Get SQS client
-
-    Args:
-        config: Application configuration
-    """
-    return SQSClient(
-        aws_access_key_id=config.aws_access_key_id,
-        aws_secret_access_key=config.aws_secret_access_key,
-        region_name=config.aws_region
-    )
 
 
 def get_sqs_consumer(config: Config) -> SQSConsumerAdapter:
@@ -33,11 +19,11 @@ def get_sqs_consumer(config: Config) -> SQSConsumerAdapter:
     Args:
         config: Application configuration
     """
-    sqs_client = get_sqs_client(config)
-
     return SQSConsumerAdapter(
-        sqs_client=sqs_client,
         queue_url=config.sqs_queue_url,
+        aws_access_key_id=config.aws_access_key_id,
+        aws_secret_access_key=config.aws_secret_access_key,
+        region_name=config.aws_region,
         wait_time_seconds=config.sqs_wait_time_seconds
     )
 

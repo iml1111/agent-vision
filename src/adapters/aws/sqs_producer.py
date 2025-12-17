@@ -14,18 +14,30 @@ class SQSProducerAdapter:
     """
     SQS message producer adapter
 
-    Provides high-level interface for sending messages to SQS queue
+    Provides high-level interface for sending messages to SQS FIFO queue
     """
 
-    def __init__(self, sqs_client: SQSClient, queue_url: str):
+    def __init__(
+        self,
+        queue_url: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        region_name: str = "ap-northeast-2"
+    ):
         """
         Initialize SQS producer
 
         Args:
-            sqs_client: SQS client instance
-            queue_url: SQS queue URL
+            queue_url: SQS FIFO queue URL (must end with .fifo)
+            aws_access_key_id: AWS IAM access key
+            aws_secret_access_key: AWS IAM secret key
+            region_name: AWS region (default: ap-northeast-2)
         """
-        self._client = sqs_client
+        self._client = SQSClient(
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=region_name
+        )
         self._queue_url = queue_url
 
     def enqueue_task(

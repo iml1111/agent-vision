@@ -2,11 +2,9 @@
 from .unit_of_work import AbstractUnitOfWork
 from .agent_session import AgentSessionRepository
 from .message import MessageRepository
-from .growth_memory import GrowthMemoryRepository
 
 __all__ = [
     "AbstractUnitOfWork",
     "AgentSessionRepository",
     "MessageRepository",
-    "GrowthMemoryRepository",
 ]

@@ -2,23 +2,26 @@
 from .agent_enums import (
     SessionStatus,
     MessageRole,
-    GrowthMemoryType,
 )
 from .agent_types import (
     AgentMessageType,
     ToolCallVO,
     AgentStreamEvent,
     AgentResponse,
+    SessionStatusVO,
+    MessageEnqueueResultVO,
 )
 
 __all__ = [
     # Enums
     "SessionStatus",
     "MessageRole",
-    "GrowthMemoryType",
     # Agent Types
     "AgentMessageType",
     "ToolCallVO",
     "AgentStreamEvent",
     "AgentResponse",
+    # Service Result VOs
+    "SessionStatusVO",
+    "MessageEnqueueResultVO",
 ]

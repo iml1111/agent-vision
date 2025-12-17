@@ -10,29 +10,12 @@ from loguru import logger
 
 # Module-level dependencies (set during app initialization)
 _config = None
-_session_context = {}  # Stores session-specific context
 
 
 def set_hook_dependencies(config):
     """Set dependencies for hooks (config includes allowlist functionality)"""
     global _config
     _config = config
-
-
-def set_session_context(session_id: str, context: Dict[str, Any]):
-    """Set context for a specific session"""
-    _session_context[session_id] = context
-
-
-def get_session_context(session_id: str) -> Dict[str, Any]:
-    """Get context for a specific session"""
-    return _session_context.get(session_id, {})
-
-
-def clear_session_context(session_id: str):
-    """Clear context for a specific session"""
-    if session_id in _session_context:
-        del _session_context[session_id]
 
 
 async def validate_slack_allowlist(

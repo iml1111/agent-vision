@@ -3,7 +3,6 @@ Agent API Routes
 
 REST API endpoints for conversational agent session management.
 """
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -84,9 +83,9 @@ async def send_message(
             sqs_producer=sqs_producer
         )
         return MessageEnqueueResponse(
-            session_id=result["session_id"],
-            status=result["status"],
-            user_message_id=result["user_message_id"]
+            session_id=result.session_id,
+            status=result.status,
+            user_message_id=result.user_message_id
         )
     except AgentSessionNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -150,12 +149,12 @@ async def get_session_status(
     try:
         status = await service.get_session_status(session_id)
         return SessionStatusResponse(
-            session_id=status["session_id"],
-            status=status["status"],
-            message_count=status["message_count"],
-            created_at=datetime.fromisoformat(status["created_at"]),
-            updated_at=datetime.fromisoformat(status["updated_at"]) if status.get("updated_at") else None,
-            archived_at=datetime.fromisoformat(status["archived_at"]) if status.get("archived_at") else None
+            session_id=status.session_id,
+            status=status.status,
+            message_count=status.message_count,
+            created_at=status.created_at,
+            updated_at=status.updated_at,
+            archived_at=status.archived_at
         )
     except AgentSessionNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

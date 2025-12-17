@@ -14,11 +14,3 @@ class MessageRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
-
-
-class GrowthMemoryType(str, Enum):
-    """Growth memory type enumeration"""
-    SESSION_SUMMARY = "session_summary"
-    EXPERIMENT_RESULT = "experiment_result"
-    INSIGHT = "insight"
-    PATTERN = "pattern"

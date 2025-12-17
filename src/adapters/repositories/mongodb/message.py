@@ -57,22 +57,6 @@ class MongoMessageRepository(MessageRepository):
         )
         return [MessageEntity.from_dict(doc) for doc in docs]
 
-    async def get_recent_by_session_id(
-        self,
-        session_id: str,
-        limit: int = 10
-    ) -> List[MessageEntity]:
-        """Get most recent messages for a session (for context building)"""
-        projection = BaseMongoAdapter.entity_projection(MessageEntity)
-        docs = await self._adapter.find_many(
-            {"session_id": session_id},
-            projection=projection,
-            limit=limit,
-            sort=[("created_at", -1)]  # Descending order (most recent first)
-        )
-        # Reverse to get chronological order for context
-        return [MessageEntity.from_dict(doc) for doc in reversed(docs)]
-
     async def count_by_session_id(self, session_id: str) -> int:
         """Count messages in a session"""
         return await self._adapter.count_documents({"session_id": session_id})

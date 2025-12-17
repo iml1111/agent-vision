@@ -4,12 +4,10 @@ Integration Tests for Service Layer
 Tests service operations with real MongoDB connection.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from domain.value_objects.agent_enums import (
     SessionStatus,
     ObservationType,
-    GrowthMemoryType,
 )
 from domain.exceptions import (
     AgentSessionNotFoundError,
@@ -17,7 +15,6 @@ from domain.exceptions import (
 )
 from service_layer.application.agent_orchestration_service import AgentOrchestrationService
 from service_layer.application.observation_service import ObservationService
-from service_layer.application.growth_memory_service import GrowthMemoryService
 
 
 class TestObservationService:
@@ -95,8 +92,8 @@ class TestObservationService:
         await service.record_tool_result(
             session_id=session_id,
             loop_id="loop1",
-            tool_name="search_growth_memory",
-            result={"memories": []},
+            tool_name="segment_analysis",
+            result={"segments": []},
             is_error=False
         )
         await service.record_error(
@@ -111,73 +108,6 @@ class TestObservationService:
         assert summary["error_count"] == 1
         assert summary["tool_call_count"] == 2
         assert "funnel_analysis" in summary["tools_used"]
-
-
-class TestGrowthMemoryService:
-    """Tests for GrowthMemoryService."""
-
-    @pytest.fixture
-    def service(self, db_client, mock_embedding_client):
-        """Create service instance with mocked embedding client."""
-        return GrowthMemoryService(db_client, mock_embedding_client)
-
-    @pytest.mark.asyncio
-    async def test_create_memory(self, service, sample_growth_memory_data):
-        """Test creating a memory with embedding generation."""
-        memory = await service.create_memory(
-            content=sample_growth_memory_data["content"],
-            memory_type=GrowthMemoryType.INSIGHT,
-            tags=sample_growth_memory_data["tags"],
-            metadata=sample_growth_memory_data["metadata"]
-        )
-
-        assert memory is not None
-        assert memory.content == sample_growth_memory_data["content"]
-        assert memory.embedding is not None
-        assert len(memory.embedding) == 1536
-
-    @pytest.mark.asyncio
-    async def test_search_relevant_memories(self, service, sample_growth_memory_data):
-        """Test searching memories by semantic similarity."""
-        # Create test memories
-        await service.create_memory(
-            content=sample_growth_memory_data["content"],
-            memory_type=GrowthMemoryType.INSIGHT,
-            tags=["retention"]
-        )
-        await service.create_memory(
-            content="Another insight about user behavior",
-            memory_type=GrowthMemoryType.INSIGHT,
-            tags=["behavior"]
-        )
-
-        # Note: Vector search requires Atlas Search index
-        # This test verifies the method works without errors
-        # Real vector similarity requires proper Atlas configuration
-        try:
-            results = await service.search_relevant_memories(
-                query="retention analysis",
-                limit=5
-            )
-            # If Atlas Search is configured, results should be returned
-            assert isinstance(results, list)
-        except Exception:
-            # Expected if Atlas Search index is not configured
-            pass
-
-    @pytest.mark.asyncio
-    async def test_get_recent_memories(self, service):
-        """Test retrieving recent memories."""
-        # Create multiple memories
-        for i in range(3):
-            await service.create_memory(
-                content=f"Memory {i}",
-                memory_type=GrowthMemoryType.INSIGHT,
-                tags=["test"]
-            )
-
-        recent = await service.get_recent_memories(limit=2)
-        assert len(recent) == 2
 
 
 class TestAgentOrchestrationService:
@@ -231,10 +161,9 @@ class TestAgentOrchestrationService:
 
         status = await service.get_session_status(session.id)
 
-        assert status["session_id"] == session.id
-        assert status["status"] == SessionStatus.CREATED.value
-        assert status["current_loop_count"] == 0
-        assert "observation_summary" in status
+        assert status.session_id == session.id
+        assert status.status == SessionStatus.ACTIVE.value
+        assert status.message_count == 0
 
     @pytest.mark.asyncio
     async def test_cancel_session(self, service, sample_session_data):
@@ -247,7 +176,7 @@ class TestAgentOrchestrationService:
         assert result is True
 
         status = await service.get_session_status(session.id)
-        assert status["status"] == SessionStatus.CANCELLED.value
+        assert status.status == SessionStatus.ARCHIVED.value
 
     @pytest.mark.asyncio
     async def test_cancel_completed_session_fails(self, service, sample_session_data):

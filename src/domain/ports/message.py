@@ -60,24 +60,6 @@ class MessageRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_recent_by_session_id(
-        self,
-        session_id: str,
-        limit: int = 10
-    ) -> List[MessageEntity]:
-        """
-        Get most recent messages for a session (for context building)
-
-        Args:
-            session_id: Session ID to filter by
-            limit: Maximum number of messages to return
-
-        Returns:
-            List of MessageEntity ordered by created_at descending
-        """
-        pass
-
-    @abstractmethod
     async def count_by_session_id(self, session_id: str) -> int:
         """
         Count messages in a session

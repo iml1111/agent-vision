@@ -6,13 +6,12 @@ Provides shared fixtures for integration and unit tests.
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from motor.motor_asyncio import AsyncIOMotorClient
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -116,15 +115,3 @@ def sample_observation_data() -> dict:
     }
 
 
-@pytest.fixture
-def sample_growth_memory_data() -> dict:
-    """Sample data for creating growth memories."""
-    return {
-        "content": "Mobile users show 15% higher D7 retention when completing onboarding tutorial",
-        "memory_type": "insight",
-        "tags": ["retention", "mobile", "onboarding"],
-        "metadata": {
-            "confidence": 0.85,
-            "data_points": 10000
-        }
-    }

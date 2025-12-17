@@ -13,24 +13,32 @@ class SQSConsumerAdapter:
     """
     SQS message consumer adapter
 
-    Provides high-level interface for consuming messages from SQS queue
+    Provides high-level interface for consuming messages from SQS FIFO queue
     """
 
     def __init__(
         self,
-        sqs_client: SQSClient,
         queue_url: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        region_name: str = "ap-northeast-2",
         wait_time_seconds: int = 20
     ):
         """
         Initialize SQS consumer
 
         Args:
-            sqs_client: SQS client instance
-            queue_url: SQS queue URL
+            queue_url: SQS FIFO queue URL (must end with .fifo)
+            aws_access_key_id: AWS IAM access key
+            aws_secret_access_key: AWS IAM secret key
+            region_name: AWS region (default: ap-northeast-2)
             wait_time_seconds: Long polling wait time (0-20)
         """
-        self._client = sqs_client
+        self._client = SQSClient(
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=region_name
+        )
         self._queue_url = queue_url
         self._wait_time_seconds = wait_time_seconds
 

@@ -4,26 +4,21 @@ Integration Tests for MongoDB Repositories
 Tests repository operations with real MongoDB connection.
 """
 import pytest
-from datetime import datetime, timezone
 
 from domain.entities.agent_session import AgentSessionEntity
 from domain.entities.agent_loop import AgentLoopEntity
 from domain.entities.observation import ObservationEntity
-from domain.entities.growth_memory import GrowthMemoryEntity
 from domain.value_objects.agent_enums import (
     SessionStatus,
     LoopPhase,
     ObservationType,
-    GrowthMemoryType,
 )
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
 from adapters.mongodb.collections.agent_loop_adapter import AgentLoopAdapter
 from adapters.mongodb.collections.observation_adapter import ObservationAdapter
-from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
 from adapters.repositories.mongodb.agent_session import MongoAgentSessionRepository
 from adapters.repositories.mongodb.agent_loop import MongoAgentLoopRepository
 from adapters.repositories.mongodb.observation import MongoObservationRepository
-from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 
 
 class TestAgentSessionRepository:
@@ -169,7 +164,7 @@ class TestAgentLoopRepository:
 
         loops = await repo.get_by_session_id(session_id)
         assert len(loops) == 3
-        assert all(l.session_id == session_id for l in loops)
+        assert all(loop.session_id == session_id for loop in loops)
 
     @pytest.mark.asyncio
     async def test_update_phase(self, repo):
@@ -253,69 +248,3 @@ class TestObservationRepository:
 
         count = await repo.count_by_session_id(session_id)
         assert count == 3
-
-
-class TestGrowthMemoryRepository:
-    """Tests for GrowthMemoryRepository."""
-
-    @pytest.fixture
-    def repo(self, db_client):
-        """Create repository instance."""
-        adapter = GrowthMemoryAdapter(db_client.db)
-        return MongoGrowthMemoryRepository(adapter)
-
-    @pytest.mark.asyncio
-    async def test_create_and_get_memory(self, repo, sample_growth_memory_data):
-        """Test creating and retrieving a memory."""
-        # Create mock embedding
-        embedding = [0.1] * 1536
-
-        memory = GrowthMemoryEntity.create(
-            content=sample_growth_memory_data["content"],
-            memory_type=GrowthMemoryType.INSIGHT,
-            embedding=embedding,
-            tags=sample_growth_memory_data["tags"]
-        )
-
-        memory_id = await repo.create(memory)
-        assert memory_id is not None
-
-        retrieved = await repo.get_by_id(memory_id)
-        assert retrieved is not None
-        assert retrieved.content == sample_growth_memory_data["content"]
-
-    @pytest.mark.asyncio
-    async def test_get_recent(self, repo):
-        """Test retrieving recent memories."""
-        embedding = [0.1] * 1536
-
-        # Create multiple memories
-        for i in range(5):
-            memory = GrowthMemoryEntity.create(
-                content=f"Memory content {i}",
-                memory_type=GrowthMemoryType.INSIGHT,
-                embedding=embedding,
-                tags=["test"]
-            )
-            await repo.create(memory)
-
-        recent = await repo.get_recent(limit=3)
-        assert len(recent) == 3
-
-    @pytest.mark.asyncio
-    async def test_get_by_session_id(self, repo):
-        """Test retrieving memories by source session ID."""
-        session_id = "memory_session_123"
-        embedding = [0.1] * 1536
-
-        memory = GrowthMemoryEntity.create(
-            content="Session summary",
-            memory_type=GrowthMemoryType.SESSION_SUMMARY,
-            embedding=embedding,
-            source_session_id=session_id
-        )
-        await repo.create(memory)
-
-        memories = await repo.get_by_session_id(session_id)
-        assert len(memories) == 1
-        assert memories[0].source_session_id == session_id

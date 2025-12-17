@@ -9,11 +9,10 @@
 Agent Vision은 Growth Hacking을 위한 대화형 AI 에이전트 백엔드 시스템입니다.
 DDD + Hexagonal Architecture 패턴을 따릅니다.
 
-**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | OpenAI Embeddings | AWS SQS
+**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | AWS SQS
 
 **핵심 기능**:
 - Conversational Agent: 연속 대화 기반 Growth 분석 (Async Worker 처리)
-- Growth Memory: Vector Search 기반 RAG
 - External Tools: Slack, Notion, EventLog
 
 ---
@@ -43,14 +42,12 @@ src/
 ├── domain/              # Pure Python (no external dependencies)
 │   ├── entities/
 │   │   ├── agent_session.py    # Session entity
-│   │   ├── message.py          # Conversation message entity
-│   │   └── growth_memory.py    # Growth memory entity (embeddings)
+│   │   └── message.py          # Conversation message entity
 │   ├── ports/           # Repository interfaces
 │   │   ├── agent_session.py
-│   │   ├── message.py
-│   │   └── growth_memory.py
+│   │   └── message.py
 │   ├── value_objects/
-│   │   ├── agent_enums.py      # SessionStatus, MessageRole, GrowthMemoryType
+│   │   ├── agent_enums.py      # SessionStatus, MessageRole
 │   │   └── agent_types.py      # ToolCallVO, AgentResponse, etc.
 │   └── exceptions.py    # Domain exceptions
 ├── service_layer/
@@ -62,18 +59,16 @@ src/
 │   │   ├── options.py       # Agent options configuration
 │   │   ├── mcp_server.py    # MCP server with tools
 │   │   ├── hooks/           # Agent lifecycle hooks
-│   │   │   ├── pre_tool_use.py     # Allowlist validation
-│   │   │   ├── post_tool_use.py    # Audit logging
-│   │   │   └── session_hooks.py    # Session end handling
+│   │   │   ├── pre_tool_use.py     # Allowlist validation, tool logging
+│   │   │   └── post_tool_use.py    # Audit logging, observation capture
 │   │   └── tools/           # Custom MCP tools
 │   │       ├── eventlog_tool.py
 │   │       ├── slack_tool.py
-│   │       ├── notion_tool.py
-│   │       └── growth_memory_tool.py
+│   │       └── notion_tool.py
 │   ├── mongodb/         # MongoDB client, collections, adapters
 │   ├── repositories/    # Repository implementations
 │   ├── aws/             # SQS producer/consumer
-│   ├── openai/          # Embedding client
+│   ├── openai/          # OpenAI client (future use)
 │   ├── external/        # Slack, Notion API clients
 │   └── uow/             # Unit of Work implementation
 ├── entrypoints/
@@ -83,7 +78,7 @@ src/
 │   │   └── schemas/agent.py # Request/Response schemas
 │   ├── worker/          # SQS Worker
 │   │   ├── app.py           # Worker entry point
-│   │   ├── dependencies.py  # Worker dependencies (db, embedding)
+│   │   ├── dependencies.py  # Worker dependencies (db)
 │   │   └── tasks/
 │   │       └── agent_tasks.py  # @task process_agent_response
 │   └── cli/             # CLI Jobs
@@ -117,25 +112,24 @@ API는 빠른 응답을 위해 메시지만 저장 후 SQS에 enqueue. Worker가
 │                         Worker Layer                            │
 ├─────────────────────────────────────────────────────────────────┤
 │  @task process_agent_response(data)                             │
-│  1. Load session and messages                                   │
-│  2. Build conversation context                                  │
-│  3. Execute GrowthAgentClient (Claude Agent SDK)               │
-│  4. Save assistant message to DB                                │
-│  5. Set status → ACTIVE                                         │
+│  1. Load session and user message                               │
+│  2. Execute GrowthAgentClient (SDK resumes session context)    │
+│  3. Save assistant message to DB                                │
+│  4. Set status → ACTIVE                                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Service Methods
 
 ```python
-# API용 - 빠른 응답
-async def enqueue_message(session_id, content, sqs_producer) -> Dict:
+# API용 - 빠른 응답 (returns Value Object)
+async def enqueue_message(session_id, content, sqs_producer) -> EnqueueResult:
     # Save message + Set PROCESSING + Enqueue to SQS
-    return {"status": "processing", "user_message_id": "..."}
+    return EnqueueResult(status="processing", user_message_id="...")
 
-# Worker용 - 무거운 작업
+# Worker용 - 무거운 작업 (SDK가 conversation history 관리)
 async def execute_agent_response(session_id, user_message_id) -> None:
-    # Execute agent + Save response + Set ACTIVE
+    # Load user message → SDK resumes session → Save response → Set ACTIVE
 ```
 
 ---
@@ -219,7 +213,6 @@ except InvalidSessionStateError as e:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db_client = MongoDBClient(...)
-    app.state.openai_client = OpenAIEmbeddingClient(...)
     app.state.sqs_producer = SQSProducerAdapter(...)  # For async processing
     _initialize_agent_tool_dependencies(app)
     yield
@@ -232,8 +225,7 @@ async def lifespan(app: FastAPI):
 @task
 async def process_agent_response(data: Dict[str, Any]) -> None:
     db_client = WorkerDependencies.get_db_client()
-    embedding_client = WorkerDependencies.get_embedding_client()
-    service = AgentOrchestrationService(db_client, embedding_client)
+    service = AgentOrchestrationService(db_client)
     await service.execute_agent_response(
         session_id=data["session_id"],
         user_message_id=data["user_message_id"]
@@ -316,11 +308,11 @@ DELETE → permanently removed
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_NAME=agent_vision
 ANTHROPIC_API_KEY=sk-ant-xxx
-OPENAI_API_KEY=sk-xxx
 
-# External (Optional)
+# External Tools (Optional)
 SLACK_BOT_TOKEN=xoxb-xxx
 NOTION_API_KEY=secret_xxx
+OPENAI_API_KEY=sk-xxx  # For future embedding features
 
 # Allowlist (JSON arrays, integrated into Config)
 SLACK_CHANNEL_ALLOWLIST='[{"channel_id": "C123", "channel_name": "growth-data"}]'
@@ -367,16 +359,16 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 ```
 ┌──────────────────────────────────────────────────────┐
 │              AgentOrchestrationService               │
-│  execute_agent_response()                            │
+│  execute_agent_response(session_id, user_message_id) │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
 ┌──────────────────────────────────────────────────────┐
 │                 GrowthAgentClient                    │
-│  (Claude Agent SDK wrapper)                          │
+│  (Claude Agent SDK wrapper with session resume)      │
 ├──────────────────────────────────────────────────────┤
-│  PreToolUse:   Allowlist validation                  │
-│  PostToolUse:  Audit logging                         │
+│  PreToolUse:   Allowlist validation, tool logging    │
+│  PostToolUse:  Audit logging, observation capture    │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
@@ -386,11 +378,12 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 │  EventLog:      funnel_analysis, retention_analysis  │
 │  Slack:         list_channels, get_messages          │
 │  Notion:        list_resources, query_database       │
-│  GrowthMemory:  search_memory, get_recent            │
 └──────────────────────────────────────────────────────┘
 ```
 
-### SDK Session Synchronization
+### SDK Session Resume Pattern
+
+SDK가 conversation history를 자동 관리하므로, 매번 히스토리를 수동으로 전달할 필요 없음.
 
 ```
 [First Message]
@@ -399,13 +392,16 @@ GrowthAgentClient(resume_session_id=None) → new SDK session
 Save sdk_session_id to database
 
 [Subsequent Messages]
-GrowthAgentClient(resume_session_id="sdk-xxx") → resumes SDK session
-SDK maintains conversation context
+GrowthAgentClient(resume_session_id="sdk-xxx")
+→ SDK automatically resumes conversation context
+→ Only new user message is passed to agent
 
 [SDK Session Expired]
 SDKSessionExpiredError → archive system session
 Return error: "Session expired, create new session"
 ```
+
+**Note**: 메시지는 DB에 저장되지만 이는 히스토리 조회용. Agent 실행 시에는 현재 user message만 전달.
 
 ---
 

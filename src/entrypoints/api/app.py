@@ -92,10 +92,7 @@ def _initialize_agent_tool_dependencies(app: FastAPI):
     """Initialize dependencies for agent tools and hooks"""
     from adapters.agent.tools.slack_tool import set_slack_dependencies
     from adapters.agent.tools.notion_tool import set_notion_dependencies
-    from adapters.agent.tools.growth_memory_tool import set_growth_memory_dependencies
     from adapters.agent.hooks.pre_tool_use import set_hook_dependencies
-    from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
-    from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 
     # Set Slack tool dependencies
     set_slack_dependencies(
@@ -107,15 +104,6 @@ def _initialize_agent_tool_dependencies(app: FastAPI):
     set_notion_dependencies(
         notion_client=app.state.notion_client,
         config=app.state.config
-    )
-
-    # Set Growth Memory tool dependencies
-    growth_memory_repo = MongoGrowthMemoryRepository(
-        GrowthMemoryAdapter(app.state.db_client.db)
-    )
-    set_growth_memory_dependencies(
-        growth_memory_repo=growth_memory_repo,
-        embedding_client=app.state.openai_client
     )
 
     # Set hook dependencies

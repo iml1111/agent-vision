@@ -225,27 +225,3 @@ class GrowthAgentClient:
             sdk_session_id=self._sdk_session_id,
             message_count=message_count
         )
-
-
-async def run_growth_agent_query(
-    prompt: str,
-    session_context: Optional[Dict[str, Any]] = None,
-    max_turns: int = 50,
-    model: str = "claude-sonnet-4-5"
-) -> AgentResponse:
-    """
-    Convenience function to run a single growth agent query.
-
-    Args:
-        prompt: The prompt/query to send
-        session_context: Optional context for the session
-        max_turns: Maximum number of agent turns
-        model: Claude model to use
-
-    Returns:
-        AgentResponse: Final aggregated response
-    """
-    async with GrowthAgentClient(max_turns=max_turns, model=model) as client:
-        if session_context:
-            client.set_session_context(session_context)
-        return await client.run_query(prompt)

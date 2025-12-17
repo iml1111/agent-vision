@@ -8,7 +8,6 @@ from .post_tool_use import (
     capture_observation,
     audit_log,
 )
-from .session_hooks import on_session_end
 
 __all__ = [
     "validate_slack_allowlist",
@@ -16,5 +15,4 @@ __all__ = [
     "log_tool_call",
     "capture_observation",
     "audit_log",
-    "on_session_end",
 ]

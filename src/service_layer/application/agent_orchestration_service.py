@@ -4,7 +4,7 @@ Agent Orchestration Service
 Conversational agent service for continuous dialogue-based growth analysis.
 Supports async processing via SQS worker.
 """
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 
 from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
@@ -17,13 +17,13 @@ from adapters.agent.client import GrowthAgentClient
 from domain.entities.agent_session import AgentSessionEntity
 from domain.entities.message import MessageEntity
 from domain.value_objects.agent_enums import SessionStatus, MessageRole
+from domain.value_objects.agent_types import SessionStatusVO, MessageEnqueueResultVO
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
     SDKSessionExpiredError,
 )
 from loguru import logger
-from .growth_memory_service import GrowthMemoryService
 
 
 class AgentOrchestrationService:
@@ -58,9 +58,6 @@ class AgentOrchestrationService:
             MessageAdapter(db_client.db)
         )
 
-        # Initialize services
-        self._memory_service = GrowthMemoryService(db_client, embedding_client)
-
     async def create_session(self) -> AgentSessionEntity:
         """
         Create a new agent session.
@@ -94,7 +91,7 @@ class AgentOrchestrationService:
     async def get_session_status(
         self,
         session_id: str
-    ) -> Dict[str, Any]:
+    ) -> SessionStatusVO:
         """
         Get session status.
 
@@ -102,26 +99,26 @@ class AgentOrchestrationService:
             session_id: Session ID
 
         Returns:
-            Dict with session status and details
+            SessionStatusVO with session status and details
         """
         session = await self.get_session(session_id)
         message_count = await self._message_repo.count_by_session_id(session_id)
 
-        return {
-            "session_id": session.id,
-            "status": session.status.value,
-            "message_count": message_count,
-            "created_at": session.created_at.isoformat(),
-            "updated_at": session.updated_at.isoformat() if session.updated_at else None,
-            "archived_at": session.archived_at.isoformat() if session.archived_at else None
-        }
+        return SessionStatusVO(
+            session_id=session.id,
+            status=session.status.value,
+            message_count=message_count,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            archived_at=session.archived_at
+        )
 
     async def enqueue_message(
         self,
         session_id: str,
         content: str,
         sqs_producer: SQSProducerAdapter
-    ) -> Dict[str, Any]:
+    ) -> MessageEnqueueResultVO:
         """
         Save user message and enqueue for async processing.
 
@@ -134,20 +131,16 @@ class AgentOrchestrationService:
             sqs_producer: SQS producer for enqueueing
 
         Returns:
-            Dict with session_id, status, and user_message_id
+            MessageEnqueueResultVO with session_id, status, and user_message_id
         """
         session = await self.get_session(session_id)
 
         # Validate session state
         if session.status == SessionStatus.ARCHIVED:
-            raise InvalidSessionStateError(
-                f"Session {session_id} is archived. Create a new session."
-            )
+            raise InvalidSessionStateError(f"Session {session_id} is archived. Create a new session.")
 
         if session.status == SessionStatus.PROCESSING:
-            raise InvalidSessionStateError(
-                f"Session {session_id} is processing. Please wait for the response."
-            )
+            raise InvalidSessionStateError(f"Session {session_id} is processing. Please wait for the response.")
 
         # Save user message
         user_message = MessageEntity.create(
@@ -172,11 +165,11 @@ class AgentOrchestrationService:
 
         logger.info(f"Message enqueued for session {session_id}, message_id={message_id}")
 
-        return {
-            "session_id": session_id,
-            "status": "processing",
-            "user_message_id": message_id
-        }
+        return MessageEnqueueResultVO(
+            session_id=session_id,
+            status="processing",
+            user_message_id=message_id
+        )
 
     async def execute_agent_response(
         self,
@@ -196,22 +189,16 @@ class AgentOrchestrationService:
         session = await self.get_session(session_id)
 
         try:
-            # Load conversation context
-            recent_messages = await self._message_repo.get_recent_by_session_id(
-                session_id=session_id,
-                limit=20
-            )
-
-            # Build context for agent
-            conversation_context = self._build_conversation_context(
-                session=session,
-                messages=recent_messages
-            )
+            # Get user message content
+            user_message = await self._message_repo.get_by_id(user_message_id)
+            if not user_message:
+                raise ValueError(f"User message {user_message_id} not found")
 
             # Get saved SDK session ID for resume
             resume_session_id = session.sdk_session_id
 
             # Execute agent with SDK session resume support
+            # SDK maintains conversation history automatically when resuming
             async with GrowthAgentClient(
                 max_turns=100,
                 resume_session_id=resume_session_id
@@ -220,7 +207,7 @@ class AgentOrchestrationService:
                     "session_id": session_id
                 })
 
-                result = await client.run_query(conversation_context)
+                result = await client.run_query(user_message.content)
 
                 # Save new SDK session ID if changed
                 new_sdk_session_id = client.sdk_session_id
@@ -285,32 +272,6 @@ class AgentOrchestrationService:
 
             logger.error(f"Agent execution failed for session {session_id}: {e}")
             raise
-
-    def _build_conversation_context(
-        self,
-        session: AgentSessionEntity,
-        messages: List[MessageEntity]
-    ) -> str:
-        """
-        Build conversation context for agent.
-
-        Args:
-            session: Current session entity
-            messages: Recent messages (chronological order)
-
-        Returns:
-            Formatted context string for agent
-        """
-        context_parts = []
-
-        if messages:
-            context_parts.append("Conversation History:")
-            for msg in messages:
-                role_label = msg.role.value.upper()
-                context_parts.append(f"[{role_label}]: {msg.content}")
-            context_parts.append("")
-
-        return "\n".join(context_parts)
 
     async def get_messages(
         self,
