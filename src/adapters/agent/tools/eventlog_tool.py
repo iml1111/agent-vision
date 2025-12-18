@@ -4,16 +4,18 @@ EventLog Tools for Growth Agent
 Provides funnel analysis, retention analysis, and segment analysis
 using MongoDB aggregation pipelines on the EventLog collection.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime
 from logging_config import get_logger
 
 from claude_code_sdk import tool
 
+from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
+
 logger = get_logger(__name__)
 
 
-def create_eventlog_tools(eventlog_adapter) -> List:
+def create_eventlog_tools(eventlog_adapter: EventLogAdapter) -> List[Callable[..., Any]]:
     """
     Create EventLog tools with injected adapter.
 

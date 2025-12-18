@@ -37,13 +37,6 @@ class SlackChannelAllowlistItem(BaseModel):
     description: Optional[str] = None
 
 
-class NotionDatabaseAllowlistItem(BaseModel):
-    """Notion database allowlist item"""
-    database_id: str
-    database_name: str
-    description: Optional[str] = None
-
-
 class NotionPageAllowlistItem(BaseModel):
     """Notion page allowlist item"""
     page_id: str
@@ -94,6 +87,9 @@ class Config(BaseSettings):
     slack_bot_token: str = Field(..., validation_alias=AliasChoices('SLACK_BOT_TOKEN', 'slack_bot_token'))
     notion_api_key: str = Field(..., validation_alias=AliasChoices('NOTION_API_KEY', 'notion_api_key'))
 
+    # Notion EventLog Spec DB
+    notion_eventlog_spec_db_id: str = Field(..., validation_alias=AliasChoices('NOTION_EVENTLOG_SPEC_DB_ID', 'notion_eventlog_spec_db_id'))
+
     # =========================================================================
     # Allowlist Properties (loaded from JSON file)
     # =========================================================================
@@ -116,16 +112,6 @@ class Config(BaseSettings):
             return []
 
     @property
-    def notion_databases(self) -> List[NotionDatabaseAllowlistItem]:
-        """Load and return Notion database allowlist from JSON file"""
-        try:
-            data = self._load_allowlist()
-            items = data.get("notion_databases", [])
-            return [NotionDatabaseAllowlistItem(**item) for item in items]
-        except (json.JSONDecodeError, TypeError, KeyError):
-            return []
-
-    @property
     def notion_pages(self) -> List[NotionPageAllowlistItem]:
         """Load and return Notion page allowlist from JSON file"""
         try:
@@ -144,13 +130,6 @@ class Config(BaseSettings):
         allowed_ids = {item.channel_id for item in self.slack_channels}
         return channel_id in allowed_ids
 
-    def is_notion_database_allowed(self, database_id: str) -> bool:
-        """Check if a Notion database is in the allowlist"""
-        # Normalize ID (remove dashes for comparison)
-        normalized_id = database_id.replace("-", "")
-        allowed_ids = {item.database_id.replace("-", "") for item in self.notion_databases}
-        return normalized_id in allowed_ids
-
     def is_notion_page_allowed(self, page_id: str) -> bool:
         """Check if a Notion page is in the allowlist"""
         # Normalize ID (remove dashes for comparison)
@@ -162,14 +141,6 @@ class Config(BaseSettings):
         """Get Slack channel info by ID"""
         for item in self.slack_channels:
             if item.channel_id == channel_id:
-                return item
-        return None
-
-    def get_notion_database_info(self, database_id: str) -> Optional[NotionDatabaseAllowlistItem]:
-        """Get Notion database info by ID"""
-        normalized_id = database_id.replace("-", "")
-        for item in self.notion_databases:
-            if item.database_id.replace("-", "") == normalized_id:
                 return item
         return None
 

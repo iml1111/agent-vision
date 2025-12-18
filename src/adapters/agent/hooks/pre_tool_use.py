@@ -72,9 +72,9 @@ async def validate_notion_allowlist(
     context: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Validate Notion resource access against allowlist.
+    Validate Notion page access against allowlist.
 
-    Blocks tool execution if the database/page is not in the allowlist.
+    Blocks tool execution if the page is not in the allowlist.
     """
     tool_name = input_data.get("tool_name", "")
 
@@ -83,8 +83,10 @@ async def validate_notion_allowlist(
         return {}
 
     tool_input = input_data.get("tool_input", {})
-    database_id = tool_input.get("database_id")
     page_id = tool_input.get("page_id")
+
+    if not page_id:
+        return {}
 
     if _config is None:
         logger.warning("Config not initialized, denying Notion access")
@@ -96,31 +98,17 @@ async def validate_notion_allowlist(
             }
         }
 
-    # Check database access
-    if database_id:
-        if not _config.is_notion_database_allowed(database_id):
-            logger.warning(f"Notion database access denied: {database_id}")
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": f"Database '{database_id}' is not in the allowlist"
-                }
+    if not _config.is_notion_page_allowed(page_id):
+        logger.warning(f"Notion page access denied: {page_id}")
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": f"Page '{page_id}' is not in the allowlist"
             }
+        }
 
-    # Check page access
-    if page_id:
-        if not _config.is_notion_page_allowed(page_id):
-            logger.warning(f"Notion page access denied: {page_id}")
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": f"Page '{page_id}' is not in the allowlist"
-                }
-            }
-
-    logger.debug(f"Notion access allowed: database={database_id}, page={page_id}")
+    logger.debug(f"Notion page access allowed: {page_id}")
     return {}
 
 

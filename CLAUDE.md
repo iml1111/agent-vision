@@ -353,15 +353,17 @@ MONGODB_NAME=agent_vision
 ANTHROPIC_API_KEY=sk-ant-xxx
 LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-# External Tools (Optional)
+# External Tools
 SLACK_BOT_TOKEN=xoxb-xxx
 NOTION_API_KEY=secret_xxx
-OPENAI_API_KEY=sk-xxx  # For future embedding features
+OPENAI_API_KEY=sk-xxx  # For embeddings
 
-# Allowlist (JSON arrays, integrated into Config)
-SLACK_CHANNEL_ALLOWLIST='[{"channel_id": "C123", "channel_name": "growth-data"}]'
-NOTION_DATABASE_ALLOWLIST='[{"database_id": "db123", "database_name": "Experiments"}]'
-NOTION_PAGE_ALLOWLIST='[{"page_id": "page123", "page_name": "Growth Playbook"}]'
+# Notion EventLog Spec DB (for get_eventlog_specs tool)
+NOTION_EVENTLOG_SPEC_DB_ID=your-eventlog-spec-db-id
+
+# Allowlist (JSON file: src/allowlist.json)
+# - slack_channels: [{channel_id, channel_name, description}]
+# - notion_pages: [{page_id, page_name, description}]
 
 # AWS SQS (Required for async processing)
 AWS_ACCESS_KEY_ID=xxx
@@ -455,9 +457,9 @@ class GrowthAgentClient:
 ├──────────────────────────────────────────────────────┤
 │  EventLog:      funnel_analysis, retention_analysis  │
 │                 segment_analysis                     │
-│  Slack:         list_channels, get_messages          │
-│  Notion:        list_resources, query_database,      │
-│                 get_page                             │
+│  Slack:         list_slack_channels, get_slack_messages │
+│  Notion:        list_notion_pages, get_notion_page,  │
+│                 get_eventlog_specs                   │
 └──────────────────────────────────────────────────────┘
 ```
 

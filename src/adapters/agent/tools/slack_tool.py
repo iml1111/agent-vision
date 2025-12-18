@@ -3,15 +3,18 @@ Slack Tools for Growth Agent
 
 Provides Slack channel listing and message retrieval.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from logging_config import get_logger
 
 from claude_code_sdk import tool
 
+from adapters.external.slack_client import SlackClient
+from config import Config
+
 logger = get_logger(__name__)
 
 
-def create_slack_tools(slack_client, config) -> List:
+def create_slack_tools(slack_client: SlackClient, config: Config) -> List[Callable[..., Any]]:
     """
     Create Slack tools with injected dependencies.
 

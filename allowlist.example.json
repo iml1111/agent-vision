@@ -6,13 +6,6 @@
       "description": "Growth 데이터 논의 채널"
     }
   ],
-  "notion_databases": [
-    {
-      "database_id": "abc123def456",
-      "database_name": "Experiments",
-      "description": "실험 기록 DB"
-    }
-  ],
   "notion_pages": [
     {
       "page_id": "page123abc",
