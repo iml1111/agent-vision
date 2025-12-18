@@ -13,7 +13,7 @@ from domain.value_objects import (
     AgentStreamEvent,
 )
 from .options import create_growth_agent_options
-from .tools import GROWTH_TOOLS
+from .tools import create_eventlog_tools, create_slack_tools, create_notion_tools
 
 logger = get_logger(__name__)
 
@@ -31,7 +31,11 @@ class GrowthAgentClient:
     def __init__(
         self,
         model: str = "claude-opus-4-5",
-        resume_session_id: Optional[str] = None
+        resume_session_id: Optional[str] = None,
+        eventlog_adapter=None,
+        slack_client=None,
+        notion_client=None,
+        config=None,
     ):
         """
         Initialize the Growth Agent client.
@@ -39,11 +43,27 @@ class GrowthAgentClient:
         Args:
             model: Claude model to use
             resume_session_id: Optional SDK session ID to resume
+            eventlog_adapter: EventLog collection adapter for analytics tools
+            slack_client: Slack API client for Slack tools
+            notion_client: Notion API client for Notion tools
+            config: Application config for allowlist access
         """
+        # Build tools from factories with injected dependencies
+        tools = []
+
+        if eventlog_adapter:
+            tools.extend(create_eventlog_tools(eventlog_adapter))
+
+        if slack_client and config:
+            tools.extend(create_slack_tools(slack_client, config))
+
+        if notion_client and config:
+            tools.extend(create_notion_tools(notion_client, config))
+
         self._mcp_server = create_sdk_mcp_server(
             name="growth-tools",
             version="1.0.0",
-            tools=GROWTH_TOOLS
+            tools=tools
         )
         self._options = create_growth_agent_options(
             mcp_server=self._mcp_server,

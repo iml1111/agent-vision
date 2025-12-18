@@ -4,10 +4,14 @@ Worker Dependencies
 Dependency injection for worker components and task handlers
 """
 from typing import Optional, Callable
-from config import Config
+
+from config import Config, SQS_WAIT_TIME_SECONDS
 from adapters.anthropic.summarization_client import ClaudeSummarizationClient
 from adapters.aws import SQSConsumerAdapter, SQSProducerAdapter
+from adapters.external.notion_client import NotionClient
+from adapters.external.slack_client import SlackClient
 from adapters.mongodb.client import MongoDBClient
+from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.uow.mongo_unit_of_work import MongoUnitOfWork
 from domain.ports.unit_of_work import AbstractUnitOfWork
@@ -25,7 +29,7 @@ def get_sqs_consumer(config: Config) -> SQSConsumerAdapter:
         aws_access_key_id=config.aws_access_key_id,
         aws_secret_access_key=config.aws_secret_access_key,
         region_name=config.aws_region,
-        wait_time_seconds=config.sqs_wait_time_seconds
+        wait_time_seconds=SQS_WAIT_TIME_SECONDS
     )
 
 
@@ -49,6 +53,9 @@ class WorkerDependencies:
     _embedding_client: Optional[OpenAIEmbeddingClient] = None
     _summarization_client: Optional[ClaudeSummarizationClient] = None
     _sqs_producer: Optional[SQSProducerAdapter] = None
+    _eventlog_adapter: Optional[EventLogAdapter] = None
+    _slack_client: Optional[SlackClient] = None
+    _notion_client: Optional[NotionClient] = None
 
     @classmethod
     def initialize(cls, config: Config) -> None:
@@ -75,6 +82,15 @@ class WorkerDependencies:
             aws_secret_access_key=config.aws_secret_access_key,
             region_name=config.aws_region
         )
+
+        # Agent tool dependencies
+        cls._eventlog_adapter = EventLogAdapter(cls._db_client.db)
+
+        if config.slack_bot_token:
+            cls._slack_client = SlackClient(bot_token=config.slack_bot_token)
+
+        if config.notion_api_key:
+            cls._notion_client = NotionClient(api_key=config.notion_api_key)
 
     @classmethod
     def get_config(cls) -> Config:
@@ -112,6 +128,23 @@ class WorkerDependencies:
         return cls._sqs_producer
 
     @classmethod
+    def get_eventlog_adapter(cls) -> EventLogAdapter:
+        """Get EventLog adapter for analytics tools"""
+        if cls._eventlog_adapter is None:
+            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
+        return cls._eventlog_adapter
+
+    @classmethod
+    def get_slack_client(cls) -> Optional[SlackClient]:
+        """Get Slack client (None if not configured)"""
+        return cls._slack_client
+
+    @classmethod
+    def get_notion_client(cls) -> Optional[NotionClient]:
+        """Get Notion client (None if not configured)"""
+        return cls._notion_client
+
+    @classmethod
     def get_uow_factory(cls) -> Callable[[], AbstractUnitOfWork]:
         """
         Get UnitOfWork factory
@@ -139,3 +172,6 @@ class WorkerDependencies:
         cls._embedding_client = None
         cls._summarization_client = None
         cls._sqs_producer = None
+        cls._eventlog_adapter = None
+        cls._slack_client = None
+        cls._notion_client = None

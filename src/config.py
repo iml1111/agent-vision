@@ -14,6 +14,18 @@ from __about__ import __version__, __author__, __app_name__
 
 
 # =============================================================================
+# Constants
+# =============================================================================
+
+# SQS Long Polling wait time (seconds)
+SQS_WAIT_TIME_SECONDS = 20
+
+# Project paths
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+ALLOWLIST_FILE = os.path.join(BASE_DIR, "allowlist.json")
+
+
+# =============================================================================
 # Allowlist Item Models
 # =============================================================================
 
@@ -39,9 +51,6 @@ class NotionPageAllowlistItem(BaseModel):
     description: Optional[str] = None
 
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-
-
 class Config(BaseSettings):
     """Application Configuration"""
 
@@ -61,7 +70,7 @@ class Config(BaseSettings):
     contact_email: str = "shin10256@gmail.com"
 
     # Environment
-    environment: str = Field("development", validation_alias=AliasChoices('ENV', 'env'))
+    environment: str = Field(..., validation_alias=AliasChoices('ENV', 'env'))
 
     # Database
     mongodb_uri: str = Field(..., validation_alias=AliasChoices('MONGODB_URI', 'mongodb_uri'))
@@ -70,11 +79,10 @@ class Config(BaseSettings):
     # AWS
     aws_access_key_id: str = Field(..., validation_alias=AliasChoices('AWS_ACCESS_KEY_ID', 'aws_access_key_id'))
     aws_secret_access_key: str = Field(..., validation_alias=AliasChoices('AWS_SECRET_ACCESS_KEY', 'aws_secret_access_key'))
-    aws_region: str = Field("ap-northeast-2", validation_alias=AliasChoices('AWS_REGION', 'aws_region'))
+    aws_region: str = Field(..., validation_alias=AliasChoices('AWS_REGION', 'aws_region'))
 
     # AWS SQS (Queue Worker)
     sqs_queue_url: str = Field(..., validation_alias=AliasChoices('SQS_QUEUE_URL', 'sqs_queue_url'))
-    sqs_wait_time_seconds: int = 20  # Long polling wait time
 
     # Claude Agent SDK
     anthropic_api_key: str = Field(..., validation_alias=AliasChoices('ANTHROPIC_API_KEY', 'anthropic_api_key'))
@@ -82,53 +90,49 @@ class Config(BaseSettings):
     # OpenAI (Embeddings)
     openai_api_key: str = Field(..., validation_alias=AliasChoices('OPENAI_API_KEY', 'openai_api_key'))
 
-    # External Integrations (Optional for MVP)
-    slack_bot_token: Optional[str] = Field(None, validation_alias=AliasChoices('SLACK_BOT_TOKEN', 'slack_bot_token'))
-    notion_api_key: Optional[str] = Field(None, validation_alias=AliasChoices('NOTION_API_KEY', 'notion_api_key'))
-
-    # Allowlist Configuration (JSON arrays from environment)
-    slack_channel_allowlist_json: str = Field(
-        default="[]",
-        validation_alias=AliasChoices('SLACK_CHANNEL_ALLOWLIST', 'slack_channel_allowlist')
-    )
-    notion_database_allowlist_json: str = Field(
-        default="[]",
-        validation_alias=AliasChoices('NOTION_DATABASE_ALLOWLIST', 'notion_database_allowlist')
-    )
-    notion_page_allowlist_json: str = Field(
-        default="[]",
-        validation_alias=AliasChoices('NOTION_PAGE_ALLOWLIST', 'notion_page_allowlist')
-    )
+    # External Integrations
+    slack_bot_token: str = Field(..., validation_alias=AliasChoices('SLACK_BOT_TOKEN', 'slack_bot_token'))
+    notion_api_key: str = Field(..., validation_alias=AliasChoices('NOTION_API_KEY', 'notion_api_key'))
 
     # =========================================================================
-    # Allowlist Properties
+    # Allowlist Properties (loaded from JSON file)
     # =========================================================================
+
+    def _load_allowlist(self) -> dict:
+        """Load allowlist from JSON file"""
+        if not os.path.exists(ALLOWLIST_FILE):
+            return {}
+        with open(ALLOWLIST_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
 
     @property
     def slack_channels(self) -> List[SlackChannelAllowlistItem]:
-        """Parse and return Slack channel allowlist"""
+        """Load and return Slack channel allowlist from JSON file"""
         try:
-            items = json.loads(self.slack_channel_allowlist_json)
+            data = self._load_allowlist()
+            items = data.get("slack_channels", [])
             return [SlackChannelAllowlistItem(**item) for item in items]
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, KeyError):
             return []
 
     @property
     def notion_databases(self) -> List[NotionDatabaseAllowlistItem]:
-        """Parse and return Notion database allowlist"""
+        """Load and return Notion database allowlist from JSON file"""
         try:
-            items = json.loads(self.notion_database_allowlist_json)
+            data = self._load_allowlist()
+            items = data.get("notion_databases", [])
             return [NotionDatabaseAllowlistItem(**item) for item in items]
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, KeyError):
             return []
 
     @property
     def notion_pages(self) -> List[NotionPageAllowlistItem]:
-        """Parse and return Notion page allowlist"""
+        """Load and return Notion page allowlist from JSON file"""
         try:
-            items = json.loads(self.notion_page_allowlist_json)
+            data = self._load_allowlist()
+            items = data.get("notion_pages", [])
             return [NotionPageAllowlistItem(**item) for item in items]
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, KeyError):
             return []
 
     # =========================================================================
@@ -176,4 +180,3 @@ class Config(BaseSettings):
             if item.page_id.replace("-", "") == normalized_id:
                 return item
         return None
-

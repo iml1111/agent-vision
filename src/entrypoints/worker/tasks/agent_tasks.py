@@ -37,9 +37,19 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
     # Get dependencies
     db_client = WorkerDependencies.get_db_client()
     sqs_producer = WorkerDependencies.get_sqs_producer()
+    config = WorkerDependencies.get_config()
+    eventlog_adapter = WorkerDependencies.get_eventlog_adapter()
+    slack_client = WorkerDependencies.get_slack_client()
+    notion_client = WorkerDependencies.get_notion_client()
 
-    # Create service instance
-    service = AgentOrchestrationService(db_client)
+    # Create service instance with agent tool dependencies
+    service = AgentOrchestrationService(
+        db_client=db_client,
+        eventlog_adapter=eventlog_adapter,
+        slack_client=slack_client,
+        notion_client=notion_client,
+        config=config
+    )
 
     # Execute agent response (handles its own error recovery)
     # Passes sqs_producer for enqueueing memory extraction on session archive

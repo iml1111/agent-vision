@@ -74,6 +74,7 @@ src/
 │   │   └── summarization_client.py  # Session 요약 (6가지 단위)
 │   ├── mongodb/         # MongoDB client, collections, adapters
 │   │   └── collections/
+│   │       ├── eventlog_adapter.py       # EventLog aggregation (analytics tools)
 │   │       └── growth_memory_adapter.py  # $vectorSearch 지원
 │   ├── repositories/    # Repository implementations
 │   │   └── mongodb/
@@ -147,12 +148,12 @@ class SessionManagementService:
     async def archive_session(session_id) -> bool
     async def delete_session(session_id) -> bool
 
-# AgentOrchestrationService - Message processing
+# AgentOrchestrationService - Message processing + Agent execution
 class AgentOrchestrationService:
-    def __init__(self, db_client): ...
+    def __init__(self, db_client, eventlog_adapter=None, slack_client=None, notion_client=None, config=None): ...
     async def enqueue_message(session_id, content, sqs_producer) -> MessageEnqueueResultVO
     async def execute_agent_response(session_id, user_message_id, sqs_producer=None) -> None
-    # sqs_producer 전달 시 SDK session expired → archive → memory task enqueue
+    # Tool dependencies are passed to GrowthAgentClient for agent execution
 ```
 
 ---
@@ -236,8 +237,10 @@ except InvalidSessionStateError as e:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db_client = MongoDBClient(...)
-    app.state.sqs_producer = SQSProducerAdapter(...)  # For async processing
-    _initialize_agent_tool_dependencies(app)
+    app.state.sqs_producer = SQSProducerAdapter(...)
+    app.state.slack_client = SlackClient(...) if token else None
+    app.state.notion_client = NotionClient(...) if key else None
+    _initialize_agent_hook_dependencies(app)  # For allowlist validation
     yield
     app.state.db_client.close()
 ```
@@ -249,12 +252,19 @@ async def lifespan(app: FastAPI):
 async def process_agent_response(data: Dict[str, Any]) -> None:
     db_client = WorkerDependencies.get_db_client()
     sqs_producer = WorkerDependencies.get_sqs_producer()
-    service = AgentOrchestrationService(db_client)
-    await service.execute_agent_response(
-        session_id=data["session_id"],
-        user_message_id=data["user_message_id"],
-        sqs_producer=sqs_producer  # For memory task on archive
+    config = WorkerDependencies.get_config()
+    eventlog_adapter = WorkerDependencies.get_eventlog_adapter()
+    slack_client = WorkerDependencies.get_slack_client()
+    notion_client = WorkerDependencies.get_notion_client()
+
+    service = AgentOrchestrationService(
+        db_client=db_client,
+        eventlog_adapter=eventlog_adapter,
+        slack_client=slack_client,
+        notion_client=notion_client,
+        config=config
     )
+    await service.execute_agent_response(...)
 
 # entrypoints/worker/tasks/memory_tasks.py
 @task
@@ -379,13 +389,39 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 1. `entrypoints/worker/tasks/xxx.py` - @task 핸들러
 2. `entrypoints/worker/tasks/__init__.py` - TASK_MODULES 추가
 
-### New Agent Tool
-1. `adapters/agent/tools/xxx_tool.py` - @tool 함수
-2. `adapters/agent/tools/__init__.py` - GROWTH_TOOLS 추가
+### New Agent Tool (Factory Pattern)
+1. `adapters/agent/tools/xxx_tool.py` - `create_xxx_tools(dependencies)` 팩토리 함수
+2. `adapters/agent/tools/__init__.py` - 팩토리 함수 export 추가
+3. `adapters/agent/client.py` - `GrowthAgentClient.__init__`에서 팩토리 호출
+4. `entrypoints/worker/dependencies.py` - 필요시 의존성 추가
 
 ---
 
 ## Agent System Architecture
+
+### Tool Factory Pattern (Dependency Injection)
+
+Agent Tools는 팩토리 함수 패턴으로 의존성 주입:
+
+```python
+# adapters/agent/tools/eventlog_tool.py
+def create_eventlog_tools(eventlog_adapter) -> List:
+    @tool("funnel_analysis", ...)
+    async def funnel_analysis(args): ...
+    return [funnel_analysis, retention_analysis, segment_analysis]
+
+# adapters/agent/client.py
+class GrowthAgentClient:
+    def __init__(self, eventlog_adapter=None, slack_client=None, notion_client=None, config=None):
+        tools = []
+        if eventlog_adapter:
+            tools.extend(create_eventlog_tools(eventlog_adapter))
+        if slack_client and config:
+            tools.extend(create_slack_tools(slack_client, config))
+        if notion_client and config:
+            tools.extend(create_notion_tools(notion_client, config))
+        self._mcp_server = create_sdk_mcp_server(tools=tools)
+```
 
 ### GrowthAgentClient Flow
 
@@ -398,7 +434,11 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
                        ▼
 ┌──────────────────────────────────────────────────────┐
 │                 GrowthAgentClient                    │
-│  (Claude Agent SDK wrapper with session resume)      │
+│  (Claude Agent SDK wrapper with DI + session resume) │
+├──────────────────────────────────────────────────────┤
+│  __init__(eventlog_adapter, slack_client,            │
+│           notion_client, config)                     │
+│  → create_*_tools() factories build MCP tools        │
 ├──────────────────────────────────────────────────────┤
 │  stream_query() → yields AgentStreamEvent            │
 │  - TEXT: text content from assistant                 │
@@ -414,8 +454,10 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 │                 MCP Server (Tools)                   │
 ├──────────────────────────────────────────────────────┤
 │  EventLog:      funnel_analysis, retention_analysis  │
+│                 segment_analysis                     │
 │  Slack:         list_channels, get_messages          │
-│  Notion:        list_resources, query_database       │
+│  Notion:        list_resources, query_database,      │
+│                 get_page                             │
 └──────────────────────────────────────────────────────┘
 ```
 

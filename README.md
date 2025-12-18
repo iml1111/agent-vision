@@ -36,8 +36,13 @@ pip install -r src/requirements.txt
 ### 2. Configure Environment
 
 ```bash
+# 환경변수 설정
 cp .env.example .env
 vi .env
+
+# Allowlist 설정 (Slack/Notion 리소스 접근 제어)
+cp src/allowlist.example.json src/allowlist.json
+vi src/allowlist.json
 ```
 
 ### 3. Run the Application
@@ -154,20 +159,45 @@ scripts/
 | `processing` | Worker에서 응답 생성 중 |
 | `archived` | SDK 세션 만료 |
 
-## Environment Variables
+## Configuration
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `MONGODB_URI` | MongoDB connection URI | Yes |
-| `MONGODB_NAME` | Database name | Yes |
-| `ANTHROPIC_API_KEY` | Claude API key | Yes |
-| `AWS_ACCESS_KEY_ID` | AWS access key | Yes |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes |
-| `AWS_REGION` | AWS region | Yes |
-| `SQS_QUEUE_URL` | SQS FIFO queue URL | Yes |
-| `SLACK_BOT_TOKEN` | Slack bot token | Optional |
-| `NOTION_API_KEY` | Notion API key | Optional |
-| `OPENAI_API_KEY` | OpenAI API key | Optional |
+### Environment Variables
+
+모든 환경변수는 필수입니다. `.env.example`을 참고하세요.
+
+| Variable | Description |
+|----------|-------------|
+| `ENV` | 환경 (development, production) |
+| `MONGODB_URI` | MongoDB connection URI |
+| `MONGODB_NAME` | Database name |
+| `ANTHROPIC_API_KEY` | Claude API key |
+| `OPENAI_API_KEY` | OpenAI API key (Embeddings) |
+| `AWS_ACCESS_KEY_ID` | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `AWS_REGION` | AWS region |
+| `SQS_QUEUE_URL` | SQS FIFO queue URL |
+| `SLACK_BOT_TOKEN` | Slack bot token |
+| `NOTION_API_KEY` | Notion API key |
+
+### Allowlist (src/allowlist.json)
+
+Slack 채널 및 Notion 리소스 접근 제어를 위한 설정 파일입니다.
+
+```json
+{
+  "slack_channels": [
+    {"channel_id": "C0123456789", "channel_name": "growth-data", "description": "..."}
+  ],
+  "notion_databases": [
+    {"database_id": "abc123", "database_name": "Experiments", "description": "..."}
+  ],
+  "notion_pages": [
+    {"page_id": "page123", "page_name": "Growth Playbook", "description": "..."}
+  ]
+}
+```
+
+> **Note**: `src/allowlist.json`은 `.gitignore`에 포함되어 있습니다. `src/allowlist.example.json`을 참고하세요.
 
 ## Development
 

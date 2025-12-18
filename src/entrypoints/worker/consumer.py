@@ -6,7 +6,7 @@ Main consumer loop for processing SQS messages
 import signal
 from logging_config import get_logger
 
-from config import Config
+from config import Config, SQS_WAIT_TIME_SECONDS
 from .task_handler import TaskHandler
 from .dependencies import get_sqs_consumer
 
@@ -54,7 +54,7 @@ class SQSConsumer:
         logger.info("Starting SQS consumer worker")
         logger.info(f"Queue URL: {self._config.sqs_queue_url}")
         logger.info("Processing mode: Single message per poll")
-        logger.info(f"Wait time: {self._config.sqs_wait_time_seconds}s")
+        logger.info(f"Wait time: {SQS_WAIT_TIME_SECONDS}s")
 
         self._running = True
 

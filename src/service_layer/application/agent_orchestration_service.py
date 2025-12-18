@@ -4,7 +4,8 @@ Agent Orchestration Service
 Message processing and agent execution service.
 Handles async message enqueueing and agent response generation.
 """
-from typing import Optional
+from typing import Any, Optional
+
 from logging_config import get_logger
 
 from adapters.mongodb.client import MongoDBClient
@@ -35,12 +36,23 @@ class AgentOrchestrationService:
     - Agent response execution (via worker)
     """
 
-    def __init__(self, db_client: MongoDBClient):
+    def __init__(
+        self,
+        db_client: MongoDBClient,
+        eventlog_adapter: Any = None,
+        slack_client: Any = None,
+        notion_client: Any = None,
+        config: Any = None
+    ):
         """
         Initialize the orchestration service.
 
         Args:
             db_client: MongoDB client for database access
+            eventlog_adapter: EventLog adapter for analytics tools
+            slack_client: Slack client for Slack tools
+            notion_client: Notion client for Notion tools
+            config: Application config for allowlist access
         """
         self._session_repo = MongoAgentSessionRepository(
             AgentSessionAdapter(db_client.db)
@@ -48,6 +60,10 @@ class AgentOrchestrationService:
         self._message_repo = MongoMessageRepository(
             MessageAdapter(db_client.db)
         )
+        self._eventlog_adapter = eventlog_adapter
+        self._slack_client = slack_client
+        self._notion_client = notion_client
+        self._config = config
 
     async def _get_session(self, session_id: str):
         """
@@ -159,7 +175,13 @@ class AgentOrchestrationService:
             sequence = 0
 
             # Execute agent with streaming - save each event to DB
-            async with GrowthAgentClient(resume_session_id=resume_session_id) as client:
+            async with GrowthAgentClient(
+                resume_session_id=resume_session_id,
+                eventlog_adapter=self._eventlog_adapter,
+                slack_client=self._slack_client,
+                notion_client=self._notion_client,
+                config=self._config
+            ) as client:
                 async for event in client.stream_query(user_message.content):
                     sequence += 1
 

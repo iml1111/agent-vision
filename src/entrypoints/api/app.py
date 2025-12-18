@@ -86,8 +86,8 @@ async def lifespan(app: FastAPI):
         )
         logger.info("SQS Producer initialized")
 
-    # Initialize Agent Tool Dependencies
-    _initialize_agent_tool_dependencies(app)
+    # Initialize Agent Hook Dependencies (for allowlist validation)
+    _initialize_agent_hook_dependencies(app)
 
     yield
 
@@ -96,28 +96,14 @@ async def lifespan(app: FastAPI):
     logger.info("Database connection closed")
 
 
-def _initialize_agent_tool_dependencies(app: FastAPI):
-    """Initialize dependencies for agent tools and hooks"""
-    from adapters.agent.tools.slack_tool import set_slack_dependencies
-    from adapters.agent.tools.notion_tool import set_notion_dependencies
+def _initialize_agent_hook_dependencies(app: FastAPI):
+    """Initialize dependencies for agent hooks (allowlist validation)"""
     from adapters.agent.hooks.pre_tool_use import set_hook_dependencies
 
-    # Set Slack tool dependencies
-    set_slack_dependencies(
-        slack_client=app.state.slack_client,
-        config=app.state.config
-    )
-
-    # Set Notion tool dependencies
-    set_notion_dependencies(
-        notion_client=app.state.notion_client,
-        config=app.state.config
-    )
-
-    # Set hook dependencies
+    # Set hook dependencies for allowlist validation
     set_hook_dependencies(config=app.state.config)
 
-    logger.info("Agent tool dependencies initialized")
+    logger.info("Agent hook dependencies initialized")
 
 
 def create_app(config: Config = None) -> FastAPI:

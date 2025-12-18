@@ -1,22 +1,7 @@
-"""Agent Tools for MCP Server"""
-from .eventlog_tool import funnel_analysis, retention_analysis, segment_analysis
-from .slack_tool import list_slack_channels, get_slack_messages
-from .notion_tool import list_notion_resources, query_notion_database, get_notion_page
-
-# All available tools for the growth agent
-GROWTH_TOOLS = [
-    # EventLog tools
-    funnel_analysis,
-    retention_analysis,
-    segment_analysis,
-    # Slack tools
-    list_slack_channels,
-    get_slack_messages,
-    # Notion tools
-    list_notion_resources,
-    query_notion_database,
-    get_notion_page,
-]
+"""Agent Tools Factory Functions"""
+from .eventlog_tool import create_eventlog_tools
+from .slack_tool import create_slack_tools
+from .notion_tool import create_notion_tools
 
 # Tool names for allowed_tools configuration
 GROWTH_TOOL_NAMES = [
@@ -31,14 +16,8 @@ GROWTH_TOOL_NAMES = [
 ]
 
 __all__ = [
-    "GROWTH_TOOLS",
+    "create_eventlog_tools",
+    "create_slack_tools",
+    "create_notion_tools",
     "GROWTH_TOOL_NAMES",
-    "funnel_analysis",
-    "retention_analysis",
-    "segment_analysis",
-    "list_slack_channels",
-    "get_slack_messages",
-    "list_notion_resources",
-    "query_notion_database",
-    "get_notion_page",
 ]

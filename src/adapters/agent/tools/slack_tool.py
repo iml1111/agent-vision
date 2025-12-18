@@ -1,8 +1,7 @@
 """
 Slack Tools for Growth Agent
 
-Provides Slack channel listing and message retrieval
-with allowlist enforcement.
+Provides Slack channel listing and message retrieval.
 """
 from typing import Any, Dict, List, Optional
 from logging_config import get_logger
@@ -12,38 +11,31 @@ from claude_code_sdk import tool
 logger = get_logger(__name__)
 
 
-# Module-level dependencies (set during app initialization)
-_slack_client = None
-_config = None
-
-
-def set_slack_dependencies(slack_client, config):
-    """Set Slack client and config for tool use"""
-    global _slack_client, _config
-    _slack_client = slack_client
-    _config = config
-
-
-@tool(
-    "list_slack_channels",
-    "List available Slack channels from the allowlist",
-    {}
-)
-async def list_slack_channels(args: Dict[str, Any]) -> Dict[str, Any]:
+def create_slack_tools(slack_client, config) -> List:
     """
-    List Slack channels available in the allowlist.
+    Create Slack tools with injected dependencies.
+
+    Args:
+        slack_client: Slack API client
+        config: Application config for allowlist access
 
     Returns:
-        List of allowed Slack channels with their IDs and descriptions
+        List of @tool decorated functions
     """
-    if _config is None:
-        return {
-            "content": [{"type": "text", "text": "Config not initialized"}],
-            "is_error": True
-        }
 
-    try:
-        channels = _config.slack_channels
+    @tool(
+        "list_slack_channels",
+        "List available Slack channels from the allowlist",
+        {}
+    )
+    async def list_slack_channels(args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        List Slack channels available in the allowlist.
+
+        Returns:
+            List of allowed Slack channels with their IDs and descriptions
+        """
+        channels = config.slack_channels
 
         if not channels:
             return {
@@ -59,92 +51,72 @@ async def list_slack_channels(args: Dict[str, Any]) -> Dict[str, Any]:
             "content": [{"type": "text", "text": response_text}]
         }
 
-    except Exception as e:
-        logger.error(f"Failed to list Slack channels: {e}")
-        return {
-            "content": [{"type": "text", "text": f"Error listing channels: {str(e)}"}],
-            "is_error": True
+    @tool(
+        "get_slack_messages",
+        "Get messages from a Slack channel",
+        {
+            "channel_id": str,
+            "limit": int,
+            "oldest": Optional[str],
+            "latest": Optional[str]
         }
+    )
+    async def get_slack_messages(args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get messages from a Slack channel.
 
+        Args:
+            channel_id: Slack channel ID
+            limit: Maximum number of messages to retrieve (default 50, max 100)
+            oldest: Only messages after this Unix timestamp
+            latest: Only messages before this Unix timestamp
 
-@tool(
-    "get_slack_messages",
-    "Get messages from a Slack channel (must be in allowlist)",
-    {
-        "channel_id": str,
-        "limit": int,
-        "oldest": Optional[str],
-        "latest": Optional[str]
-    }
-)
-async def get_slack_messages(args: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Get messages from a Slack channel.
+        Returns:
+            Messages from the channel
+        """
+        channel_id = args.get("channel_id")
+        limit = min(args.get("limit", 50), 100)
+        oldest = args.get("oldest")
+        latest = args.get("latest")
 
-    Args:
-        channel_id: Slack channel ID (must be in allowlist)
-        limit: Maximum number of messages to retrieve (default 50, max 100)
-        oldest: Only messages after this Unix timestamp
-        latest: Only messages before this Unix timestamp
+        try:
+            result = await slack_client.get_messages(
+                channel_id=channel_id,
+                limit=limit,
+                oldest=oldest,
+                latest=latest
+            )
 
-    Returns:
-        Messages from the channel
-    """
-    if _slack_client is None or _config is None:
-        return {
-            "content": [{"type": "text", "text": "Slack dependencies not initialized"}],
-            "is_error": True
-        }
+            messages = result.get("messages", [])
 
-    channel_id = args.get("channel_id")
-    limit = min(args.get("limit", 50), 100)
-    oldest = args.get("oldest")
-    latest = args.get("latest")
+            if not messages:
+                return {
+                    "content": [{"type": "text", "text": "No messages found in the specified range"}]
+                }
 
-    # Allowlist check (server-side enforcement)
-    if not _config.is_slack_channel_allowed(channel_id):
-        return {
-            "content": [{"type": "text", "text": f"Access denied: Channel {channel_id} is not in the allowlist"}],
-            "is_error": True
-        }
+            channel_info = config.get_slack_channel_info(channel_id)
+            channel_name = channel_info.channel_name if channel_info else channel_id
 
-    try:
-        result = await _slack_client.get_messages(
-            channel_id=channel_id,
-            limit=limit,
-            oldest=oldest,
-            latest=latest
-        )
+            response_text = f"Messages from #{channel_name} ({len(messages)} messages):\n\n"
 
-        messages = result.get("messages", [])
+            for msg in messages[:limit]:
+                user = msg.get("user", "unknown")
+                text = msg.get("text", "")[:500]
+                ts = msg.get("ts", "")
+                response_text += f"[{ts}] {user}: {text}\n\n"
 
-        if not messages:
+            if result.get("has_more"):
+                response_text += "\n(More messages available - use pagination to retrieve)"
+
             return {
-                "content": [{"type": "text", "text": "No messages found in the specified range"}]
+                "content": [{"type": "text", "text": response_text}]
             }
 
-        # Format messages for response
-        channel_info = _config.get_slack_channel_info(channel_id)
-        channel_name = channel_info.channel_name if channel_info else channel_id
+        except Exception as e:
+            logger.error(f"Failed to get Slack messages: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Error retrieving messages: {str(e)}"}],
+                "is_error": True
+            }
 
-        response_text = f"Messages from #{channel_name} ({len(messages)} messages):\n\n"
-
-        for msg in messages[:limit]:
-            user = msg.get("user", "unknown")
-            text = msg.get("text", "")[:500]  # Truncate long messages
-            ts = msg.get("ts", "")
-            response_text += f"[{ts}] {user}: {text}\n\n"
-
-        if result.get("has_more"):
-            response_text += "\n(More messages available - use pagination to retrieve)"
-
-        return {
-            "content": [{"type": "text", "text": response_text}]
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to get Slack messages: {e}")
-        return {
-            "content": [{"type": "text", "text": f"Error retrieving messages: {str(e)}"}],
-            "is_error": True
-        }
+    return [list_slack_channels, get_slack_messages]

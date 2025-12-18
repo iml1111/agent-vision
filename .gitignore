@@ -138,6 +138,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
+
+# Allowlist (contains sensitive resource IDs)
+src/allowlist.json
 env/
 venv/
 ENV/
