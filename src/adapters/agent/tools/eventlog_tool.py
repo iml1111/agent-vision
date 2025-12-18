@@ -1,18 +1,161 @@
 """
-EventLog Tools for Growth Agent
+EventLog Tool for Growth Agent
 
-Provides funnel analysis, retention analysis, and segment analysis
-using MongoDB aggregation pipelines on the EventLog collection.
+Provides raw MongoDB aggregation pipeline execution on the EventLog collection
+with validation and security constraints.
 """
-from typing import Any, Callable, Dict, List, Optional
-from datetime import datetime
-from logging_config import get_logger
+import json
+from typing import Any, Callable, Dict, List, Set
 
+from logging_config import get_logger
 from claude_code_sdk import tool
 
 from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 
 logger = get_logger(__name__)
+
+# Whitelist of allowed aggregation stages (22 stages)
+ALLOWED_STAGES: Set[str] = {
+    # Filtering
+    "$match",
+    # Projection
+    "$project", "$addFields", "$set", "$unset", "$unwind",
+    # Grouping & Aggregation
+    "$group", "$count", "$sortByCount", "$bucket", "$bucketAuto",
+    # Sorting & Pagination
+    "$sort", "$limit", "$skip",
+    # Conditional
+    "$replaceRoot", "$replaceWith",
+    # Advanced
+    "$facet", "$setWindowFields", "$densify", "$fill",
+    # Date
+    "$dateTrunc",
+    # Join (same collection only)
+    "$lookup",
+}
+
+# Blocked stages for security
+BLOCKED_STAGES: Set[str] = {"$out", "$merge", "$where", "$function"}
+
+# Collection name for $lookup validation
+EVENTLOG_COLLECTION = "eventlog"
+
+
+def _validate_pipeline(pipeline: List[Dict[str, Any]]) -> tuple[bool, str]:
+    """
+    Validate aggregation pipeline against security constraints.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not pipeline:
+        return False, "Pipeline cannot be empty"
+
+    if not isinstance(pipeline, list):
+        return False, "Pipeline must be a list of stages"
+
+    has_limit = False
+
+    for i, stage in enumerate(pipeline):
+        if not isinstance(stage, dict):
+            return False, f"Stage {i} must be a dictionary"
+
+        if len(stage) != 1:
+            return False, f"Stage {i} must have exactly one operator"
+
+        operator = list(stage.keys())[0]
+
+        # Check blocked stages
+        if operator in BLOCKED_STAGES:
+            return False, f"Stage '{operator}' is not allowed (security restriction)"
+
+        # Check allowed stages
+        if operator not in ALLOWED_STAGES:
+            return False, f"Stage '{operator}' is not in the allowed stages list"
+
+        # Check $limit presence
+        if operator == "$limit":
+            has_limit = True
+
+        # Validate $lookup - must reference same collection only
+        if operator == "$lookup":
+            lookup_config = stage["$lookup"]
+            if isinstance(lookup_config, dict):
+                from_collection = lookup_config.get("from")
+                if from_collection and from_collection != EVENTLOG_COLLECTION:
+                    return False, f"$lookup.from must reference '{EVENTLOG_COLLECTION}' collection only (cross-collection joins not allowed)"
+
+    # Enforce $limit requirement
+    if not has_limit:
+        return False, "$limit stage is required in every pipeline"
+
+    return True, ""
+
+
+# Tool description with full schema documentation
+TOOL_DESCRIPTION = """Execute MongoDB aggregation pipeline on EventLog collection.
+
+## EventLog Document Schema
+
+### Core Fields (Always Available)
+- event: string - 이벤트 타입 (예: "login_success", "page_view", "complete_purchase")
+- timestamp: datetime (UTC) - 이벤트 발생 시각
+- session_id: string - 세션 식별자
+- platform: enum - 플랫폼 구분
+  * Values: api, pc_web, mobile_web, ios, android, ipad, mac_app, windows_app, chrome_extension, safari_extension, smart_tv, kiosk, wearable
+- version: string - 앱/서비스 버전
+
+### Optional Fields
+- user_id: string - 유저 식별자 (로그인 사용자만)
+- stage: string - 배포 환경 (dev, staging, prod)
+- utm_source: string - UTM 소스 (예: "google", "twitter")
+- utm_campaign: string - UTM 캠페인 (예: "launch_q4")
+
+### Dynamic Field
+- extra: object - 이벤트별 추가 데이터
+  * 예시: extra.email, extra.order_id, extra.total_amount, extra.referrer_url
+  * 각 event 타입마다 다른 extra 필드 사용 (Event Specs 참조)
+
+### Example Document
+```json
+{
+  "_id": "69421be07f11027ec52647ec",
+  "event": "complete_purchase",
+  "timestamp": "2025-12-17T02:56:32.083Z",
+  "session_id": "d5721a1e-2004-4269-a14a-a69d248af0ca",
+  "platform": "pc_web",
+  "version": "1.0.5",
+  "user_id": "69395379738483dbf0e14e8b",
+  "stage": "prod",
+  "utm_source": null,
+  "utm_campaign": null,
+  "extra": {
+    "email": "user@example.com",
+    "order_id": "LES-202512171155-XWIKXZ",
+    "total_amount": 0,
+    "credit_count": 0
+  }
+}
+```
+
+## Allowed Aggregation Stages (22 stages)
+- Filtering: $match
+- Projection: $project, $addFields, $set, $unset, $unwind
+- Grouping: $group, $count, $sortByCount, $bucket, $bucketAuto
+- Sorting/Pagination: $sort, $limit (REQUIRED), $skip
+- Conditional: $replaceRoot, $replaceWith
+- Advanced: $facet, $setWindowFields, $densify, $fill
+- Date: $dateTrunc
+- Join: $lookup (same 'eventlog' collection only)
+
+## NOT ALLOWED (Security)
+- $out, $merge (write operations)
+- $where, $function (server-side JavaScript)
+- Cross-collection $lookup
+
+## IMPORTANT
+- $limit stage is MANDATORY in every pipeline
+- All dates should be ISO format strings or Date objects"""
 
 
 def create_eventlog_tools(eventlog_adapter: EventLogAdapter) -> List[Callable[..., Any]]:
@@ -27,244 +170,52 @@ def create_eventlog_tools(eventlog_adapter: EventLogAdapter) -> List[Callable[..
     """
 
     @tool(
-        "funnel_analysis",
-        "Analyze user funnel conversion rates between sequential events",
+        "run_eventlog_aggregation",
+        TOOL_DESCRIPTION,
         {
-            "events": List[str],
-            "start_date": str,
-            "end_date": str,
-            "filters": Optional[Dict[str, Any]]
+            "pipeline": List[Dict[str, Any]],
         }
     )
-    async def funnel_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def run_eventlog_aggregation(args: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analyze funnel conversion between sequential events.
+        Execute MongoDB aggregation pipeline on EventLog collection.
 
         Args:
-            events: List of event names in sequence (e.g., ["page_view", "add_to_cart", "purchase"])
-            start_date: Start date in ISO format
-            end_date: End date in ISO format
-            filters: Optional filters (e.g., {"platform": "ios"})
+            pipeline: MongoDB aggregation pipeline stages
 
         Returns:
-            Funnel analysis with conversion rates at each step
+            Aggregation results or error
         """
-        events_list = args.get("events", [])
-        start_date = args.get("start_date")
-        end_date = args.get("end_date")
-        filters = args.get("filters", {})
+        pipeline = args.get("pipeline", [])
 
-        if len(events_list) < 2:
+        # Validate pipeline
+        is_valid, error_msg = _validate_pipeline(pipeline)
+        if not is_valid:
+            logger.warning(f"Pipeline validation failed: {error_msg}")
             return {
-                "content": [{"type": "text", "text": "At least 2 events required for funnel analysis"}],
+                "content": [{"type": "text", "text": f"Pipeline validation error: {error_msg}"}],
                 "is_error": True
             }
 
         try:
-            match_stage = {
-                "$match": {
-                    "event_name": {"$in": events_list},
-                    "timestamp": {
-                        "$gte": datetime.fromisoformat(start_date),
-                        "$lte": datetime.fromisoformat(end_date)
-                    },
-                    **filters
-                }
-            }
-
-            group_stage = {
-                "$group": {
-                    "_id": "$user_id",
-                    "events": {"$addToSet": "$event_name"}
-                }
-            }
-
-            pipeline = [match_stage, group_stage]
             results = await eventlog_adapter.aggregate(pipeline)
 
-            funnel_results = []
-            total_users = len(results)
+            # Format results
+            result_count = len(results)
+            result_text = f"Aggregation completed. {result_count} document(s) returned.\n\n"
 
-            for i, event in enumerate(events_list):
-                users_at_step = sum(1 for r in results if event in r.get("events", []))
-                conversion_rate = (users_at_step / total_users * 100) if total_users > 0 else 0
-                drop_off = 0
-                if i > 0 and len(funnel_results) > 0:
-                    prev_users = funnel_results[i-1]["users"]
-                    drop_off = ((prev_users - users_at_step) / prev_users * 100) if prev_users > 0 else 0
-
-                funnel_results.append({
-                    "step": i + 1,
-                    "event": event,
-                    "users": users_at_step,
-                    "conversion_rate": round(conversion_rate, 2),
-                    "drop_off_rate": round(drop_off, 2)
-                })
-
-            response_text = f"Funnel Analysis ({start_date} to {end_date}):\n"
-            for step in funnel_results:
-                response_text += f"Step {step['step']} ({step['event']}): {step['users']} users ({step['conversion_rate']}% conversion, {step['drop_off_rate']}% drop-off)\n"
+            if result_count > 0:
+                result_text += json.dumps(results, indent=2, default=str, ensure_ascii=False)
 
             return {
-                "content": [{"type": "text", "text": response_text}]
+                "content": [{"type": "text", "text": result_text}]
             }
 
         except Exception as e:
-            logger.error(f"Funnel analysis failed: {e}")
+            logger.error(f"EventLog aggregation failed: {e}")
             return {
-                "content": [{"type": "text", "text": f"Funnel analysis error: {str(e)}"}],
+                "content": [{"type": "text", "text": f"Aggregation error: {str(e)}"}],
                 "is_error": True
             }
 
-    @tool(
-        "retention_analysis",
-        "Analyze user retention over time periods",
-        {
-            "cohort_event": str,
-            "return_event": str,
-            "start_date": str,
-            "end_date": str,
-            "periods": int,
-            "period_unit": str
-        }
-    )
-    async def retention_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Analyze user retention for cohorts.
-
-        Args:
-            cohort_event: Event that defines cohort entry (e.g., "signup")
-            return_event: Event that defines return (e.g., "login")
-            start_date: Cohort start date in ISO format
-            end_date: Cohort end date in ISO format
-            periods: Number of periods to track (e.g., 7 for 7 days)
-            period_unit: "day", "week", or "month"
-
-        Returns:
-            Retention analysis with retention rates per period
-        """
-        try:
-            cohort_event = args.get("cohort_event")
-            return_event = args.get("return_event")
-            start_date = args.get("start_date")
-            end_date = args.get("end_date")
-
-            pipeline = [
-                {
-                    "$match": {
-                        "event_name": {"$in": [cohort_event, return_event]},
-                        "timestamp": {
-                            "$gte": datetime.fromisoformat(start_date),
-                            "$lte": datetime.fromisoformat(end_date)
-                        }
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": "$user_id",
-                        "first_cohort_event": {"$min": {"$cond": [{"$eq": ["$event_name", cohort_event]}, "$timestamp", None]}},
-                        "return_events": {"$push": {"$cond": [{"$eq": ["$event_name", return_event]}, "$timestamp", None]}}
-                    }
-                }
-            ]
-
-            results = await eventlog_adapter.aggregate(pipeline)
-
-            total_cohort = len([r for r in results if r.get("first_cohort_event")])
-
-            response_text = f"Retention Analysis for {cohort_event} -> {return_event}:\n"
-            response_text += f"Cohort size: {total_cohort} users\n"
-            response_text += f"Period: {start_date} to {end_date}\n"
-            response_text += f"Note: Detailed period-by-period retention requires additional processing\n"
-
-            return {
-                "content": [{"type": "text", "text": response_text}]
-            }
-
-        except Exception as e:
-            logger.error(f"Retention analysis failed: {e}")
-            return {
-                "content": [{"type": "text", "text": f"Retention analysis error: {str(e)}"}],
-                "is_error": True
-            }
-
-    @tool(
-        "segment_analysis",
-        "Analyze user segments based on event properties",
-        {
-            "event_name": str,
-            "segment_by": str,
-            "start_date": str,
-            "end_date": str,
-            "metric": str
-        }
-    )
-    async def segment_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Analyze user segments based on event properties.
-
-        Args:
-            event_name: Event to analyze
-            segment_by: Property to segment by (e.g., "platform", "country")
-            start_date: Start date in ISO format
-            end_date: End date in ISO format
-            metric: "count" or "unique_users"
-
-        Returns:
-            Segment breakdown with counts
-        """
-        try:
-            event_name = args.get("event_name")
-            segment_by = args.get("segment_by")
-            start_date = args.get("start_date")
-            end_date = args.get("end_date")
-            metric = args.get("metric", "count")
-
-            pipeline = [
-                {
-                    "$match": {
-                        "event_name": event_name,
-                        "timestamp": {
-                            "$gte": datetime.fromisoformat(start_date),
-                            "$lte": datetime.fromisoformat(end_date)
-                        }
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": f"$properties.{segment_by}",
-                        "count": {"$sum": 1},
-                        "unique_users": {"$addToSet": "$user_id"}
-                    }
-                },
-                {
-                    "$project": {
-                        "segment": "$_id",
-                        "count": 1,
-                        "unique_users": {"$size": "$unique_users"}
-                    }
-                },
-                {"$sort": {"count": -1}}
-            ]
-
-            results = await eventlog_adapter.aggregate(pipeline)
-
-            response_text = f"Segment Analysis for {event_name} by {segment_by}:\n"
-            response_text += f"Period: {start_date} to {end_date}\n\n"
-
-            for segment in results[:20]:
-                value = metric if metric == "count" else "unique_users"
-                response_text += f"- {segment.get('segment', 'Unknown')}: {segment.get(value, 0)}\n"
-
-            return {
-                "content": [{"type": "text", "text": response_text}]
-            }
-
-        except Exception as e:
-            logger.error(f"Segment analysis failed: {e}")
-            return {
-                "content": [{"type": "text", "text": f"Segment analysis error: {str(e)}"}],
-                "is_error": True
-            }
-
-    return [funnel_analysis, retention_analysis, segment_analysis]
+    return [run_eventlog_aggregation]

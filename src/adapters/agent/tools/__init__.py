@@ -7,9 +7,7 @@ from .notion_tool import create_notion_tools
 
 # Tool names for allowed_tools configuration
 GROWTH_TOOL_NAMES: List[str] = [
-    "mcp__growth-tools__funnel_analysis",
-    "mcp__growth-tools__retention_analysis",
-    "mcp__growth-tools__segment_analysis",
+    "mcp__growth-tools__run_eventlog_aggregation",
     "mcp__growth-tools__list_slack_channels",
     "mcp__growth-tools__get_slack_messages",
     "mcp__growth-tools__list_notion_pages",

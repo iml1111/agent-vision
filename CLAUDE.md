@@ -408,9 +408,9 @@ Agent Tools는 팩토리 함수 패턴으로 의존성 주입:
 ```python
 # adapters/agent/tools/eventlog_tool.py
 def create_eventlog_tools(eventlog_adapter) -> List:
-    @tool("funnel_analysis", ...)
-    async def funnel_analysis(args): ...
-    return [funnel_analysis, retention_analysis, segment_analysis]
+    @tool("run_eventlog_aggregation", ...)
+    async def run_eventlog_aggregation(args): ...
+    return [run_eventlog_aggregation]
 
 # adapters/agent/client.py
 class GrowthAgentClient:
@@ -455,8 +455,8 @@ class GrowthAgentClient:
 ┌──────────────────────────────────────────────────────┐
 │                 MCP Server (Tools)                   │
 ├──────────────────────────────────────────────────────┤
-│  EventLog:      funnel_analysis, retention_analysis  │
-│                 segment_analysis                     │
+│  EventLog:      run_eventlog_aggregation             │
+│                 (MongoDB pipeline 직접 실행)          │
 │  Slack:         list_slack_channels, get_slack_messages │
 │  Notion:        list_notion_pages, get_notion_page,  │
 │                 get_eventlog_specs                   │
