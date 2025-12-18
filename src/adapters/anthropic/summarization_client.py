@@ -6,13 +6,14 @@ Generates structured summaries from conversation history.
 """
 import json
 from typing import List
+from logging_config import get_logger
 
 from anthropic import AsyncAnthropic
-from loguru import logger
-
 from domain.entities.message import MessageEntity
 from domain.value_objects.agent_types import GrowthMemorySummaryVO
 from domain.exceptions import SummarizationError
+
+logger = get_logger(__name__)
 
 
 SUMMARIZATION_SYSTEM_PROMPT = """You are a Growth Hacking analyst that extracts structured insights from conversation history.

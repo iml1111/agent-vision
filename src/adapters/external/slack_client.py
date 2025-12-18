@@ -4,9 +4,12 @@ Slack Client Adapter
 Provides Slack API operations for message retrieval and channel info.
 """
 from typing import Optional, Dict, Any, List
-from loguru import logger
+from logging_config import get_logger
+
 from adapters.http.client import HTTPClient
 from domain.exceptions import SlackAPIError
+
+logger = get_logger(__name__)
 
 
 class SlackClient(HTTPClient):

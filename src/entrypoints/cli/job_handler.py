@@ -3,9 +3,11 @@ Job Execution Handler
 
 Dispatches job execution to registered handlers.
 """
-from loguru import logger
+from logging_config import get_logger
 
 from .job_registry import JobRegistry
+
+logger = get_logger(__name__)
 
 
 class JobHandler:

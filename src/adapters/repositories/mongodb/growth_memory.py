@@ -1,13 +1,14 @@
 """MongoDB GrowthMemory Repository Implementation"""
 from typing import List, Optional
+from logging_config import get_logger
 
 from bson import ObjectId
-from loguru import logger
-
 from adapters.mongodb.base import BaseMongoAdapter
 from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
 from domain.entities.growth_memory import GrowthMemoryEntity
 from domain.ports.growth_memory import GrowthMemoryRepository
+
+logger = get_logger(__name__)
 
 
 class MongoGrowthMemoryRepository(GrowthMemoryRepository):

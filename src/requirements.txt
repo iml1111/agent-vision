@@ -18,9 +18,6 @@ httpx
 # CLI
 click
 
-# Logging
-loguru
-
 # Development
 python-dotenv
 

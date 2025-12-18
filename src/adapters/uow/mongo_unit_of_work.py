@@ -5,12 +5,13 @@ Manages MongoDB transaction lifecycle using Motor's ClientSession.
 Creates session-aware repositories that share the same transaction.
 """
 from typing import Optional
+from logging_config import get_logger
 
-from loguru import logger
 from motor.motor_asyncio import AsyncIOMotorClientSession
-
 from adapters.mongodb.client import MongoDBClient
 from domain.ports.unit_of_work import AbstractUnitOfWork
+
+logger = get_logger(__name__)
 
 
 class MongoUnitOfWork(AbstractUnitOfWork):

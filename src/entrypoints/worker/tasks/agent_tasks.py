@@ -4,11 +4,13 @@ Agent Processing Tasks
 Task handlers for async agent response processing via SQS worker.
 """
 from typing import Dict, Any
+from logging_config import get_logger
 
 from entrypoints.worker.task_registry import task
 from entrypoints.worker.dependencies import WorkerDependencies
 from service_layer.application.agent_orchestration_service import AgentOrchestrationService
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 @task

@@ -5,8 +5,11 @@ Provides Notion database querying and page content retrieval
 with allowlist enforcement.
 """
 from typing import Any, Dict, List, Optional
+from logging_config import get_logger
+
 from claude_code_sdk import tool
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 # Module-level dependencies (set during app initialization)

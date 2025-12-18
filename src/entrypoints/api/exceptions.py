@@ -7,7 +7,9 @@ import traceback
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from loguru import logger
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _serialize_body_for_json(body) -> str | dict | None:

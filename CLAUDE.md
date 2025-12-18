@@ -40,6 +40,7 @@ Entity는 ID로 식별 (`__eq__`, `__hash__`), Set/Dict 키로 사용 가능
 ```
 src/
 ├── config.py            # Pydantic BaseSettings (Allowlist 포함)
+├── logging_config.py    # Python 표준 logging 설정 (setup_logging, get_logger)
 ├── domain/              # Pure Python (no external dependencies)
 │   ├── entities/
 │   │   ├── agent_session.py    # Session entity
@@ -98,7 +99,8 @@ src/
 
 scripts/
 ├── agent_chat.py        # POC CLI for API testing
-└── archive_session.py   # Archive session + SQS enqueue (--skip-memory 옵션)
+├── archive_session.py   # Archive session + SQS enqueue (--skip-memory 옵션)
+└── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
 ```
 
 ---
@@ -340,6 +342,7 @@ DELETE → permanently removed
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_NAME=agent_vision
 ANTHROPIC_API_KEY=sk-ant-xxx
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 # External Tools (Optional)
 SLACK_BOT_TOKEN=xoxb-xxx
@@ -523,7 +526,7 @@ python scripts/agent_chat.py --base-url http://localhost:8080
 └─4. GrowthMemory 저장 (idempotent)
          │
          ▼
-[MongoDB Collection] growth_memories
+[MongoDB Collection] GrowthMemory
 - content_vector: 1536 dim (Atlas Vector Search)
 ```
 

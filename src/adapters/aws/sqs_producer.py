@@ -6,8 +6,11 @@ Handles sending messages to SQS queue (used by API)
 import json
 import uuid
 from typing import Dict, Any, Optional
-from loguru import logger
+from logging_config import get_logger
+
 from .sqs_client import SQSClient
+
+logger = get_logger(__name__)
 
 
 class SQSProducerAdapter:

@@ -4,6 +4,7 @@ Memory Processing Tasks
 Task handlers for async GrowthMemory extraction via SQS worker.
 """
 from typing import Dict, Any
+from logging_config import get_logger
 
 from entrypoints.worker.task_registry import task
 from entrypoints.worker.dependencies import WorkerDependencies
@@ -13,7 +14,8 @@ from domain.exceptions import (
     InvalidSessionStateError,
     SummarizationError,
 )
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 @task

@@ -4,15 +4,22 @@ CLI Application Entry Point
 Background Jobs and Cronjobs using Click
 """
 import asyncio
-import click
-from loguru import logger
+import os
 
-from config import Config
+import click
+
 from __about__ import __version__
+from config import Config
+from logging_config import get_logger, setup_logging
+
 from .dependencies import CLIDependencies
 from .jobs import register_all_jobs
 from .job_registry import JobRegistry
 from .job_handler import JobHandler
+
+# Initialize logging
+setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = get_logger(__name__)
 
 
 @click.group(name="void")

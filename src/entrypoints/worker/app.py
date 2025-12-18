@@ -4,13 +4,19 @@ Worker Application Entry Point
 SQS Consumer Worker for async task processing
 """
 import asyncio
-from loguru import logger
+import os
 
 from config import Config
+from logging_config import get_logger, setup_logging
+
 from .tasks import register_all_tasks
 from .task_registry import TaskRegistry
 from .dependencies import WorkerDependencies
 from .consumer import SQSConsumer
+
+# Initialize logging
+setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = get_logger(__name__)
 
 
 async def main():

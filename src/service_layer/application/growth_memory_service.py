@@ -5,8 +5,7 @@ Service for creating and managing Growth Memory documents.
 Handles session summarization, embedding generation, and memory persistence.
 """
 from typing import List, Optional
-
-from loguru import logger
+from logging_config import get_logger
 
 from adapters.anthropic.summarization_client import ClaudeSummarizationClient
 from adapters.mongodb.client import MongoDBClient
@@ -24,6 +23,8 @@ from domain.exceptions import (
     SummarizationError,
 )
 from domain.value_objects.agent_enums import SessionStatus
+
+logger = get_logger(__name__)
 
 
 class GrowthMemoryService:

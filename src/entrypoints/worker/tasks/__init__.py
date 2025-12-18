@@ -4,13 +4,13 @@ Task Handlers (Entry Point)
 Worker task handlers that delegate to Service Layer.
 Similar to FastAPI route handlers that call services.
 """
-from loguru import logger
+from logging_config import get_logger
 
 from entrypoints.worker.task_registry import TaskRegistry
-
-# Import all task modules here
 from . import agent_tasks
 from . import memory_tasks
+
+logger = get_logger(__name__)
 
 # All task modules
 TASK_MODULES = [

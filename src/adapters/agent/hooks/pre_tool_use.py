@@ -5,7 +5,9 @@ Provides access control and logging before tool execution.
 Server-side enforcement of allowlist policies.
 """
 from typing import Dict, Any
-from loguru import logger
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Module-level dependencies (set during app initialization)
@@ -138,14 +140,10 @@ async def log_tool_call(
     # Get session ID from context if available
     session_id = context.get("session_id", "unknown")
 
+    tool_input_keys = list(tool_input.keys())
     logger.info(
-        f"Tool call: {tool_name}",
-        extra={
-            "tool_name": tool_name,
-            "tool_use_id": tool_use_id,
-            "session_id": session_id,
-            "tool_input_keys": list(tool_input.keys())
-        }
+        f"Tool call: {tool_name} | session_id={session_id} | "
+        f"tool_use_id={tool_use_id} | input_keys={tool_input_keys}"
     )
 
     return {}

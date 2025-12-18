@@ -3,10 +3,14 @@ FastAPI Application Factory
 
 Creates and configures the FastAPI application instance.
 """
+import os
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from loguru import logger
+
 from config import Config
+from logging_config import get_logger, setup_logging
+
 from adapters.mongodb.client import MongoDBClient
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.aws.sqs_producer import SQSProducerAdapter
@@ -15,6 +19,10 @@ from adapters.external.notion_client import NotionClient
 from .middleware import setup_middleware
 from .exceptions import setup_exception_handlers
 from .routes import register_routes
+
+# Initialize logging
+setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = get_logger(__name__)
 
 
 @asynccontextmanager

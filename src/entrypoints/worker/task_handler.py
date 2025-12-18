@@ -6,10 +6,11 @@ Routes SQS messages to appropriate task handlers using registry
 import json
 import traceback
 from typing import Dict, Any
-from loguru import logger
+from logging_config import get_logger
 
 from entrypoints.worker.task_registry import TaskRegistry
-from entrypoints.worker.dependencies import WorkerDependencies
+
+logger = get_logger(__name__)
 
 
 class TaskHandler:

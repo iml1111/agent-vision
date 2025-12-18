@@ -6,8 +6,11 @@ using MongoDB aggregation pipelines on the EventLog collection.
 """
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
+from logging_config import get_logger
+
 from claude_code_sdk import tool
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 # Module-level dependencies (set during app initialization)

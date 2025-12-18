@@ -5,9 +5,12 @@ Infrastructure adapter for AWS SQS SDK
 """
 import uuid
 from typing import Dict, List, Any, Optional
+from logging_config import get_logger
+
 import boto3
 from botocore.exceptions import ClientError
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 class SQSClient:

@@ -4,9 +4,12 @@ Notion Client Adapter
 Provides Notion API operations for database queries and page content retrieval.
 """
 from typing import Optional, Dict, Any, List
-from loguru import logger
+from logging_config import get_logger
+
 from adapters.http.client import HTTPClient
 from domain.exceptions import NotionAPIError
+
+logger = get_logger(__name__)
 
 
 class NotionClient(HTTPClient):

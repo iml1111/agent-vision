@@ -5,8 +5,9 @@ Logs tool execution results for audit and debugging.
 """
 from typing import Dict, Any
 from datetime import datetime, timezone
+from logging_config import get_logger
 
-from loguru import logger
+logger = get_logger(__name__)
 
 
 async def audit_log(
@@ -43,17 +44,13 @@ async def audit_log(
     elif isinstance(tool_response, str):
         response_summary = tool_response[:200]
 
+    timestamp = datetime.now(timezone.utc).isoformat()
     logger.info(
-        f"Tool result: {tool_name} [{status}]",
-        extra={
-            "tool_name": tool_name,
-            "tool_use_id": tool_use_id,
-            "session_id": session_id,
-            "status": status,
-            "response_summary": response_summary,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+        f"Tool result: {tool_name} [{status}] | session_id={session_id} | "
+        f"tool_use_id={tool_use_id} | timestamp={timestamp}"
     )
+    if response_summary:
+        logger.debug(f"Tool response summary: {response_summary}")
 
     # Return error context to agent if tool failed
     if status == "error":

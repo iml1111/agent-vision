@@ -1,15 +1,16 @@
 """MongoDB Agent Session Repository Implementation"""
 from datetime import datetime, timezone
 from typing import List, Optional
+from logging_config import get_logger
 
 from bson import ObjectId
-from loguru import logger
-
 from adapters.mongodb.base import BaseMongoAdapter
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
 from domain.entities.agent_session import AgentSessionEntity
 from domain.ports.agent_session import AgentSessionRepository
 from domain.value_objects.agent_enums import SessionStatus
+
+logger = get_logger(__name__)
 
 
 class MongoAgentSessionRepository(AgentSessionRepository):

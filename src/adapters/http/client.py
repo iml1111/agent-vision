@@ -4,8 +4,11 @@ HTTP Client Adapter
 Generic async HTTP client wrapper using httpx
 """
 from typing import Dict, Any, Optional
+from logging_config import get_logger
+
 import httpx
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 class HTTPClient:

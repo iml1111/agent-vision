@@ -5,6 +5,7 @@ Message processing and agent execution service.
 Handles async message enqueueing and agent response generation.
 """
 from typing import Optional
+from logging_config import get_logger
 
 from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.agent_session_adapter import AgentSessionAdapter
@@ -21,7 +22,8 @@ from domain.exceptions import (
     InvalidSessionStateError,
     SDKSessionExpiredError,
 )
-from loguru import logger
+
+logger = get_logger(__name__)
 
 
 class AgentOrchestrationService:

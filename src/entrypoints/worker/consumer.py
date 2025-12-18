@@ -4,11 +4,13 @@ SQS Consumer Worker
 Main consumer loop for processing SQS messages
 """
 import signal
-from loguru import logger
+from logging_config import get_logger
 
 from config import Config
 from .task_handler import TaskHandler
 from .dependencies import get_sqs_consumer
+
+logger = get_logger(__name__)
 
 
 class SQSConsumer:

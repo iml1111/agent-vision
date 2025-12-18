@@ -4,9 +4,12 @@ OpenAI Embedding Client
 Generates text embeddings using OpenAI's text-embedding-3-small model.
 """
 from typing import List
+from logging_config import get_logger
+
 from openai import AsyncOpenAI
-from loguru import logger
 from domain.exceptions import EmbeddingServiceError
+
+logger = get_logger(__name__)
 
 
 class OpenAIEmbeddingClient:

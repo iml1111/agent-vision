@@ -5,8 +5,11 @@ Handles message polling and processing from SQS queue
 """
 import json
 from typing import Dict, Any, Callable, Optional
-from loguru import logger
+from logging_config import get_logger
+
 from .sqs_client import SQSClient
+
+logger = get_logger(__name__)
 
 
 class SQSConsumerAdapter:

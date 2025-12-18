@@ -4,9 +4,11 @@ Job Handlers (Entry Point)
 CLI job handlers that delegate to Service Layer.
 Similar to Worker task handlers pattern.
 """
-from loguru import logger
+from logging_config import get_logger
 
 from entrypoints.cli.job_registry import JobRegistry
+
+logger = get_logger(__name__)
 
 # Import all job modules here
 # from . import some_job

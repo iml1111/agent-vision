@@ -4,8 +4,9 @@ Growth Agent Client
 High-level wrapper for Claude SDK client with session lifecycle management.
 """
 from typing import AsyncIterator, Any, Optional
+from logging_config import get_logger
+
 from claude_code_sdk import ClaudeSDKClient, AssistantMessage, TextBlock, ToolUseBlock
-from loguru import logger
 from domain.value_objects import (
     AgentMessageType,
     ToolCallVO,
@@ -13,6 +14,8 @@ from domain.value_objects import (
 )
 from .mcp_server import create_growth_agent_mcp_server
 from .options import create_growth_agent_options
+
+logger = get_logger(__name__)
 
 
 class GrowthAgentClient:
