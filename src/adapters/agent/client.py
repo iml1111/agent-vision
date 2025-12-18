@@ -30,7 +30,7 @@ class GrowthAgentClient:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-5",
+        model: str = "claude-opus-4-5",
         resume_session_id: Optional[str] = None
     ):
         """
