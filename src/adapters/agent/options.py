@@ -50,7 +50,6 @@ Always cite specific data points from your analysis to support your recommendati
 def create_growth_agent_options(
     mcp_server,
     max_turns: int = 50,
-    max_budget_usd: Optional[float] = None,
     model: str = "claude-sonnet-4-5",
     cwd: Optional[Path] = None,
     resume_session_id: Optional[str] = None
@@ -61,7 +60,6 @@ def create_growth_agent_options(
     Args:
         mcp_server: The SDK MCP server with growth tools
         max_turns: Maximum number of agent turns (default 50)
-        max_budget_usd: Optional budget limit in USD
         model: Claude model to use (default: claude-sonnet-4-5)
         cwd: Optional working directory
         resume_session_id: Optional SDK session ID to resume
@@ -125,10 +123,6 @@ def create_growth_agent_options(
         # Streaming for real-time updates
         include_partial_messages=True,
     )
-
-    # Add optional budget limit
-    if max_budget_usd is not None:
-        options.max_budget_usd = max_budget_usd
 
     # Add optional working directory
     if cwd is not None:

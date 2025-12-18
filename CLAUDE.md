@@ -61,9 +61,8 @@ src/
 │       └── growth_memory_service.py        # GrowthMemory 생성/검색
 ├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
-│   │   ├── client.py        # GrowthAgentClient wrapper (_MAX_TURNS=100)
+│   │   ├── client.py        # GrowthAgentClient wrapper (MCP server 인라인 생성)
 │   │   ├── options.py       # Agent options configuration
-│   │   ├── mcp_server.py    # MCP server with tools
 │   │   ├── hooks/           # Agent lifecycle hooks
 │   │   │   ├── pre_tool_use.py     # Allowlist validation, tool logging
 │   │   │   └── post_tool_use.py    # Audit logging, observation capture
@@ -382,8 +381,7 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 
 ### New Agent Tool
 1. `adapters/agent/tools/xxx_tool.py` - @tool 함수
-2. `adapters/agent/mcp_server.py` - MCP 서버 등록
-3. `adapters/agent/tools/__init__.py` - GROWTH_TOOLS 추가
+2. `adapters/agent/tools/__init__.py` - GROWTH_TOOLS 추가
 
 ---
 
@@ -557,13 +555,7 @@ class GrowthMemoryEntity(BaseEntity):
 ```python
 class GrowthMemoryService:
     async def create_memory_from_session(session_id: str) -> str:
-        """세션 아카이브 → 요약 → 임베딩 → 저장"""
-
-    async def search_similar_memories(query: str, limit: int = 5) -> List[GrowthMemoryEntity]:
-        """Vector Search로 유사 사례 검색"""
-
-    async def get_memory_by_session(session_id: str) -> Optional[GrowthMemoryEntity]:
-        """세션 ID로 메모리 조회"""
+        """세션 아카이브 → 요약 → 임베딩 → 저장 (Worker task에서 호출)"""
 ```
 
 ### Atlas Vector Search Index (수동 생성 필요)

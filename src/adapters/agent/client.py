@@ -6,14 +6,14 @@ High-level wrapper for Claude SDK client with session lifecycle management.
 from typing import AsyncIterator, Any, Optional
 from logging_config import get_logger
 
-from claude_code_sdk import ClaudeSDKClient, AssistantMessage, TextBlock, ToolUseBlock
+from claude_code_sdk import ClaudeSDKClient, AssistantMessage, TextBlock, ToolUseBlock, create_sdk_mcp_server
 from domain.value_objects import (
     AgentMessageType,
     ToolCallVO,
     AgentStreamEvent,
 )
-from .mcp_server import create_growth_agent_mcp_server
 from .options import create_growth_agent_options
+from .tools import GROWTH_TOOLS
 
 logger = get_logger(__name__)
 
@@ -30,7 +30,6 @@ class GrowthAgentClient:
 
     def __init__(
         self,
-        max_budget_usd: Optional[float] = None,
         model: str = "claude-sonnet-4-5",
         resume_session_id: Optional[str] = None
     ):
@@ -38,15 +37,20 @@ class GrowthAgentClient:
         Initialize the Growth Agent client.
 
         Args:
-            max_budget_usd: Optional budget limit in USD
             model: Claude model to use
             resume_session_id: Optional SDK session ID to resume
         """
-        self._max_budget_usd = max_budget_usd
-        self._model = model
-        self._resume_session_id = resume_session_id
-        self._mcp_server = None
-        self._options = None
+        self._mcp_server = create_sdk_mcp_server(
+            name="growth-tools",
+            version="1.0.0",
+            tools=GROWTH_TOOLS
+        )
+        self._options = create_growth_agent_options(
+            mcp_server=self._mcp_server,
+            max_turns=self._MAX_TURNS,
+            model=model,
+            resume_session_id=resume_session_id
+        )
         self._client: Optional[ClaudeSDKClient] = None
         self._claude_session_id: Optional[str] = None
 
@@ -57,31 +61,15 @@ class GrowthAgentClient:
 
     async def __aenter__(self) -> "GrowthAgentClient":
         """Async context manager entry"""
-        # Create MCP server
-        self._mcp_server = create_growth_agent_mcp_server()
-
-        # Create options with resume support
-        self._options = create_growth_agent_options(
-            mcp_server=self._mcp_server,
-            max_turns=self._MAX_TURNS,
-            max_budget_usd=self._max_budget_usd,
-            model=self._model,
-            resume_session_id=self._resume_session_id
-        )
-
-        # Create and enter client context
         self._client = ClaudeSDKClient(options=self._options)
         await self._client.__aenter__()
-
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit"""
         if self._client:
             await self._client.__aexit__(exc_type, exc_val, exc_tb)
-        self._client = None
-        self._options = None
-        self._mcp_server = None
+            self._client = None
 
     async def query(self, prompt: str) -> None:
         """
