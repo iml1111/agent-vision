@@ -4,7 +4,6 @@ GrowthMemory Service
 Service for creating and managing Growth Memory documents.
 Handles session summarization, embedding generation, and memory persistence.
 """
-from typing import List, Optional
 from logging_config import get_logger
 
 from adapters.anthropic.summarization_client import ClaudeSummarizationClient
@@ -116,10 +115,17 @@ class GrowthMemoryService:
 
         # 5. Generate embedding for vector search
         embedding_text = summary.get_embedding_text()
-        content_vector = None
-        if embedding_text:
-            content_vector = await self._embedding_client.generate_embedding(embedding_text)
-            logger.debug(f"Generated embedding for session {session_id}")
+        if not embedding_text:
+            raise SummarizationError(
+                f"Failed to generate embedding text for session {session_id}"
+            )
+
+        content_vector = await self._embedding_client.generate_embedding(embedding_text)
+        if not content_vector:
+            raise SummarizationError(
+                f"Failed to generate embedding vector for session {session_id}"
+            )
+        logger.debug(f"Generated embedding for session {session_id}")
 
         # 6. Create and save entity
         memory = GrowthMemoryEntity.create(
@@ -131,7 +137,7 @@ class GrowthMemoryService:
             outcome=summary.outcome,
             learnings_next_actions=summary.learnings_next_actions,
             content_vector=content_vector,
-            vector_text=embedding_text if embedding_text else None,
+            vector_text=embedding_text,
             message_count=len(messages),
             session_created_at=session.created_at,
             session_archived_at=session.archived_at
@@ -141,54 +147,3 @@ class GrowthMemoryService:
         logger.info(f"Created GrowthMemory {memory_id} for session {session_id}")
 
         return memory_id
-
-    async def search_similar_memories(
-        self,
-        query: str,
-        limit: int = 5,
-        min_score: float = 0.7
-    ) -> List[GrowthMemoryEntity]:
-        """
-        Search for similar memories by semantic similarity.
-
-        Args:
-            query: Search query text
-            limit: Maximum number of results
-            min_score: Minimum similarity score threshold
-
-        Returns:
-            List of GrowthMemoryEntity ordered by similarity
-        """
-        # Generate query embedding
-        query_vector = await self._embedding_client.generate_embedding(query)
-
-        # Perform vector search
-        return await self._memory_repo.vector_search(
-            query_vector=query_vector,
-            limit=limit,
-            min_score=min_score
-        )
-
-    async def get_memory_by_session(self, session_id: str) -> Optional[GrowthMemoryEntity]:
-        """
-        Get memory by original session ID.
-
-        Args:
-            session_id: Original session ID
-
-        Returns:
-            GrowthMemoryEntity if found, None otherwise
-        """
-        return await self._memory_repo.get_by_session_id(session_id)
-
-    async def delete_memory(self, memory_id: str) -> bool:
-        """
-        Delete memory document.
-
-        Args:
-            memory_id: Memory ID to delete
-
-        Returns:
-            True if deleted, False if not found
-        """
-        return await self._memory_repo.delete(memory_id)
