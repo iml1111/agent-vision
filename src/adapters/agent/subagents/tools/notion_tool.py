@@ -6,7 +6,7 @@ Provides Notion page listing and content retrieval.
 from typing import Any, Callable, Dict, List
 
 from logging_config import get_logger
-from claude_code_sdk import tool
+from claude_agent_sdk import tool
 
 from adapters.external.notion_client import NotionClient
 from config import Config

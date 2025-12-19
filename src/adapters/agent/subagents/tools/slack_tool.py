@@ -6,7 +6,7 @@ Provides Slack channel listing and message retrieval.
 from typing import Any, Callable, Dict, List, Optional
 from logging_config import get_logger
 
-from claude_code_sdk import tool
+from claude_agent_sdk import tool
 
 from adapters.external.slack_client import SlackClient
 from config import Config

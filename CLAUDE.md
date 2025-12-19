@@ -61,24 +61,22 @@ src/
 │       └── growth_memory_service.py        # GrowthMemory 생성/검색
 ├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
-│   │   ├── client.py        # GrowthAgentClient (deprecated, use supervisor/)
-│   │   ├── options.py       # Agent options configuration
 │   │   ├── supervisor/      # Supervisor Agent (coordinates sub-agents)
 │   │   │   ├── client.py        # SupervisorAgentClient
-│   │   │   ├── options.py       # Supervisor options
+│   │   │   ├── options.py       # Supervisor options + system prompt
 │   │   │   └── tools/
 │   │   │       └── subagent_tools.py  # call_slack, call_product, call_data, call_memory
-│   │   ├── subagents/       # Specialized Sub-Agents
-│   │   │   ├── base.py          # BaseSubAgent abstract class
-│   │   │   ├── slack.py         # SlackAgent
-│   │   │   ├── product_domain.py  # ProductDomainAgent
-│   │   │   ├── data_analysis.py   # DataAnalysisAgent
-│   │   │   └── memory.py        # MemoryAgent
-│   │   └── tools/           # Custom MCP tools (used by sub-agents)
-│   │       ├── eventlog_tool.py
-│   │       ├── slack_tool.py
-│   │       ├── notion_tool.py
-│   │       └── growth_memory_tool.py
+│   │   └── subagents/       # Specialized Sub-Agents
+│   │       ├── base.py          # BaseSubAgent abstract class (+ built-in tools)
+│   │       ├── slack.py         # SlackAgent
+│   │       ├── product_domain.py  # ProductDomainAgent
+│   │       ├── data_analysis.py   # DataAnalysisAgent
+│   │       ├── memory.py        # MemoryAgent
+│   │       └── tools/           # Custom MCP tools (used by sub-agents)
+│   │           ├── eventlog_tool.py
+│   │           ├── slack_tool.py
+│   │           ├── notion_tool.py
+│   │           └── growth_memory_tool.py
 │   ├── anthropic/       # Claude API clients
 │   │   └── summarization_client.py  # Session 요약 (6가지 단위)
 │   ├── mongodb/         # MongoDB client, collections, adapters
@@ -136,7 +134,7 @@ API는 빠른 응답을 위해 메시지만 저장 후 SQS에 enqueue. Worker가
 ├─────────────────────────────────────────────────────────────────┤
 │  @task process_agent_response(data)                             │
 │  1. Load session and user message                               │
-│  2. Execute GrowthAgentClient.stream_query()                    │
+│  2. Execute SupervisorAgentClient.stream_query()                │
 │  3. For each event (TEXT, TOOL_USE):                            │
 │     → Save as individual MessageEntity to DB                    │
 │  4. On COMPLETE: update claude_session_id if changed            │
@@ -163,7 +161,7 @@ class AgentOrchestrationService:
                  memory_repo, embedding_client): ...
     async def enqueue_message(session_id, content, sqs_producer) -> MessageEnqueueResultVO
     async def execute_agent_response(session_id, user_message_id, sqs_producer=None) -> None
-    # Tool dependencies (including RAG) are passed to GrowthAgentClient
+    # Tool dependencies (including RAG) are passed to SupervisorAgentClient
 ```
 
 ---
@@ -405,8 +403,8 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 2. `entrypoints/worker/tasks/__init__.py` - TASK_MODULES 추가
 
 ### New Agent Tool (Factory Pattern)
-1. `adapters/agent/tools/xxx_tool.py` - `create_xxx_tools(dependencies)` 팩토리 함수
-2. `adapters/agent/tools/__init__.py` - 팩토리 함수 export 추가
+1. `adapters/agent/subagents/tools/xxx_tool.py` - `create_xxx_tools(dependencies)` 팩토리 함수
+2. `adapters/agent/subagents/tools/__init__.py` - 팩토리 함수 export 추가
 3. Sub-agent에 Tool 추가 시: 해당 sub-agent의 `create_tools()` 메서드에 추가
 4. `entrypoints/worker/dependencies.py` - 필요시 의존성 추가
 
@@ -468,15 +466,27 @@ Growth Agent는 Supervisor가 전문화된 Sub-Agent들을 Tool로 호출하는 
 Sub-Agent Tools는 팩토리 함수 패턴으로 의존성 주입:
 
 ```python
-# adapters/agent/tools/eventlog_tool.py
-def create_eventlog_tools(eventlog_adapter, notion_client, config) -> List:
+# adapters/agent/subagents/tools/eventlog_tool.py
+def create_eventlog_tools(eventlog_adapter) -> List:
     @tool("run_eventlog_aggregation", ...)
     async def run_eventlog_aggregation(args): ...
 
-    @tool("get_eventlog_specs", ...)
-    async def get_eventlog_specs(args): ...
+    return [run_eventlog_aggregation]
+```
 
-    return [run_eventlog_aggregation, get_eventlog_specs]
+### Built-in Tools
+
+Supervisor 및 모든 Sub-Agent에서 사용 가능한 기본 도구:
+
+| Tool | 용도 |
+|------|------|
+| **WebSearch** | 외부 정보 검색 (벤치마크, 트렌드, 경쟁사) |
+| **WebFetch** | URL 콘텐츠 분석 (공유 링크, 문서) |
+| **TodoWrite** | 분석 진행 상황 추적 |
+
+```python
+# adapters/agent/subagents/base.py
+SUBAGENT_BUILTIN_TOOLS = ["WebSearch", "WebFetch", "TodoWrite"]
 ```
 
 ### BaseSubAgent Pattern
@@ -496,7 +506,7 @@ class BaseSubAgent(ABC):
     @abstractmethod
     def create_tools(self) -> List[Callable]: ...
 
-    async def execute(self, task: str, include_raw: bool = False) -> str:
+    async def execute(self, task: str) -> str:
         """단일 실행 후 최종 응답만 반환. Stateless."""
         ...
 ```
@@ -752,7 +762,7 @@ python scripts/archive_session.py <session_id> --skip-memory
 Agent가 과거 유사 사례를 검색하고 대화 기록을 조회할 수 있는 MCP 도구:
 
 ```python
-# adapters/agent/tools/growth_memory_tool.py
+# adapters/agent/subagents/tools/growth_memory_tool.py
 def create_growth_memory_tools(memory_repo, embedding_client, message_repo) -> List:
     @tool("search_growth_memory", ...)
     async def search_growth_memory(args):

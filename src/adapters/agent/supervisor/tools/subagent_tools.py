@@ -4,9 +4,9 @@ Sub-Agent Tools for Supervisor
 Provides tools that allow the Supervisor to delegate tasks to specialized sub-agents.
 Each tool wraps a sub-agent execution and returns results to the Supervisor.
 """
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
-from claude_code_sdk import tool
+from claude_agent_sdk import tool
 from logging_config import get_logger
 
 from adapters.agent.subagents.base import BaseSubAgent
@@ -21,13 +21,12 @@ SLACK_AGENT_DESCRIPTION = """Delegate task to Slack Agent for team communication
 The Slack Agent will:
 - Autonomously select relevant channels based on the task
 - Search and retrieve Slack messages
-- Return summarized or raw messages
+- Summarize or return raw messages based on task requirements
 
 Parameters:
-- task (required): Description of what information to find
-- include_raw (optional): If true, include original messages instead of summary
+- task (required): Description of what information to find. Specify if you need raw messages or summary.
 
-Example: call_slack(task="Find discussions about retention drop last week")
+Example: call_slack(task="Find discussions about retention drop last week and summarize key points")
 """
 
 PRODUCT_AGENT_DESCRIPTION = """Delegate task to Product Domain Agent for product knowledge.
@@ -35,13 +34,12 @@ PRODUCT_AGENT_DESCRIPTION = """Delegate task to Product Domain Agent for product
 The Product Domain Agent will:
 - Search Notion documentation for relevant information
 - Provide product context, features, and timelines
-- Return summarized or full document content
+- Summarize or return full content based on task requirements
 
 Parameters:
-- task (required): Description of what product context is needed
-- include_raw (optional): If true, include full document content instead of summary
+- task (required): Description of what product context is needed. Specify if you need full content or summary.
 
-Example: call_product(task="Get context on the onboarding flow and recent changes")
+Example: call_product(task="Get context on the onboarding flow and summarize recent changes")
 """
 
 DATA_AGENT_DESCRIPTION = """Delegate task to Data Analysis Agent for EventLog analysis.
@@ -90,13 +88,11 @@ def create_subagent_tools(
         SLACK_AGENT_DESCRIPTION,
         {
             "task": str,
-            "include_raw": Optional[bool],
         }
     )
     async def call_slack(args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Slack Agent to retrieve team communications."""
         task = args.get("task", "")
-        include_raw = args.get("include_raw", False)
 
         if not task:
             return {
@@ -113,7 +109,7 @@ def create_subagent_tools(
 
         try:
             async with agent:
-                result = await agent.execute(task, include_raw)
+                result = await agent.execute(task)
             return {"content": [{"type": "text", "text": result}]}
         except Exception as e:
             logger.error(f"Slack agent execution failed: {e}")
@@ -127,13 +123,11 @@ def create_subagent_tools(
         PRODUCT_AGENT_DESCRIPTION,
         {
             "task": str,
-            "include_raw": Optional[bool],
         }
     )
     async def call_product(args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Product Domain Agent to retrieve product knowledge."""
         task = args.get("task", "")
-        include_raw = args.get("include_raw", False)
 
         if not task:
             return {
@@ -150,7 +144,7 @@ def create_subagent_tools(
 
         try:
             async with agent:
-                result = await agent.execute(task, include_raw)
+                result = await agent.execute(task)
             return {"content": [{"type": "text", "text": result}]}
         except Exception as e:
             logger.error(f"Product domain agent execution failed: {e}")
@@ -234,8 +228,13 @@ def create_subagent_tools(
 
 # Tool names for allowed_tools configuration
 SUPERVISOR_TOOL_NAMES: List[str] = [
+    # Custom sub-agent tools
     "mcp__supervisor-tools__call_slack",
     "mcp__supervisor-tools__call_product",
     "mcp__supervisor-tools__call_data",
     "mcp__supervisor-tools__call_memory",
+    # Built-in tools
+    "WebSearch",
+    "WebFetch",
+    "TodoWrite",
 ]

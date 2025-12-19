@@ -7,7 +7,7 @@ Enables RAG-based retrieval of similar historical analyses.
 import json
 from typing import Any, Callable, Dict, List, Optional
 
-from claude_code_sdk import tool
+from claude_agent_sdk import tool
 from logging_config import get_logger
 
 from adapters.openai.embedding_client import OpenAIEmbeddingClient

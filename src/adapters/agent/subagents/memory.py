@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 from adapters.repositories.mongodb.message import MongoMessageRepository
-from adapters.agent.tools.growth_memory_tool import create_growth_memory_tools
+from adapters.agent.subagents.tools.growth_memory_tool import create_growth_memory_tools
 from .base import BaseSubAgent
 
 
@@ -22,6 +22,11 @@ You are the expert on learning from past experiences and patterns.
 ## Available Tools
 - search_growth_memory: Vector search for similar past Growth cases (RAG)
 - get_session_messages: Get full conversation history from a past session
+
+## Built-in Tools
+- WebSearch: 관련 외부 사례 검색 (과거 세션에서 참조된 주제 관련)
+- WebFetch: 과거 세션에서 참조된 링크 내용 분석
+- TodoWrite: 검색 진행 상황 추적
 
 ## Workflow
 1. Understand what historical context the Supervisor needs

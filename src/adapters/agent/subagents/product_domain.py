@@ -7,7 +7,7 @@ Provides product context, timelines, and feature information.
 from typing import Any, Callable, Dict, List
 
 from adapters.external.notion_client import NotionClient
-from adapters.agent.tools.notion_tool import create_notion_tools
+from adapters.agent.subagents.tools.notion_tool import create_notion_tools
 from config import Config
 from .base import BaseSubAgent
 
@@ -22,6 +22,11 @@ You are the expert on product features, timelines, and domain knowledge.
 - list_notion_pages: Get available documentation pages
 - get_notion_page: Get content from a specific page
 - get_eventlog_specs: Get EventLog event definitions (for understanding what events exist)
+
+## Built-in Tools
+- WebSearch: 제품 관련 외부 자료 검색 (경쟁사, 업계 트렌드)
+- WebFetch: 문서나 블로그 링크 내용 분석
+- TodoWrite: 정보 수집 진행 상황 추적
 
 ## Workflow
 1. Understand what product context the Supervisor needs

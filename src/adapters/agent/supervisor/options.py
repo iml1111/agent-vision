@@ -6,7 +6,7 @@ Creates ClaudeAgentOptions configured for the Growth Hacking Supervisor agent.
 from typing import Optional
 from pathlib import Path
 
-from claude_code_sdk import ClaudeAgentOptions
+from claude_agent_sdk import ClaudeAgentOptions
 
 from .tools import SUPERVISOR_TOOL_NAMES
 
@@ -19,13 +19,13 @@ You coordinate specialized sub-agents to analyze growth problems and provide rec
 
 1. **Slack Agent** (call_slack): Team communication retrieval
    - Autonomously selects relevant channels
-   - Returns summarized or raw messages based on request
-   - Params: task (required), include_raw (optional, default: false)
+   - Summarizes or returns raw messages based on task description
+   - Params: task (required) - specify if you need summary or raw messages
 
 2. **Product Domain Agent** (call_product): Product knowledge expert
    - Provides product context, timelines, features
-   - Summarizes Notion documentation appropriately
-   - Params: task (required), include_raw (optional, default: false)
+   - Summarizes or returns full content based on task description
+   - Params: task (required) - specify if you need summary or full content
 
 3. **Data Analysis Agent** (call_data): EventLog data analysis
    - Executes aggregation pipelines (may run multiple queries)
@@ -37,6 +37,22 @@ You coordinate specialized sub-agents to analyze growth problems and provide rec
    - Provides advice based on past experiences
    - Returns executed queries alongside results for verification
    - Params: task (required)
+
+## Built-in Tools (직접 사용 가능)
+
+1. **WebSearch**: 외부 정보 검색
+   - 업계 벤치마크, 트렌드 조사 (예: "SaaS D+7 retention benchmark")
+   - 경쟁사 분석, Growth 모범 사례 검색
+   - 최신 마케팅/그로스 전략 연구
+
+2. **WebFetch**: URL 콘텐츠 분석
+   - Slack/Notion에서 공유된 외부 링크 내용 확인
+   - 참조 문서나 리포트 요약
+   - 경쟁사 랜딩페이지/블로그 분석
+
+3. **TodoWrite**: 분석 진행 상황 추적
+   - 복잡한 분석 작업 단계별 추적
+   - 사용자에게 진행 현황 가시성 제공
 
 ## Your Workflow
 

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Type
 
-from claude_code_sdk import (
+from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
@@ -19,6 +19,9 @@ from claude_code_sdk import (
 from logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Built-in tools available to all sub-agents
+SUBAGENT_BUILTIN_TOOLS = ["WebSearch", "WebFetch", "TodoWrite"]
 
 
 class BaseSubAgent(ABC):
@@ -88,9 +91,13 @@ class BaseSubAgent(ABC):
             tools=tools,
         )
 
+        # Combine MCP tool names with built-in tools
+        allowed_tools = [f"mcp__{self.name}-tools__{tool.__name__}" for tool in tools]
+        allowed_tools.extend(SUBAGENT_BUILTIN_TOOLS)
+
         return ClaudeAgentOptions(
             mcp_servers={f"{self.name}-tools": self._mcp_server},
-            allowed_tools=[f"mcp__{self.name}-tools__{tool.__name__}" for tool in tools],
+            allowed_tools=allowed_tools,
             permission_mode="bypassPermissions",
             system_prompt=self.system_prompt,
             max_turns=self._max_turns,
@@ -115,7 +122,7 @@ class BaseSubAgent(ABC):
             await self._client.__aexit__(exc_type, exc_val, exc_tb)
             self._client = None
 
-    async def execute(self, task: str, include_raw: bool = False) -> str:
+    async def execute(self, task: str) -> str:
         """
         Execute a task and return the final response.
 
@@ -123,9 +130,8 @@ class BaseSubAgent(ABC):
         The sub-agent may call multiple tools internally before returning.
 
         Args:
-            task: The task description from the Supervisor
-            include_raw: Whether to include raw/full content instead of summary
-                        (only applicable to some sub-agents)
+            task: The task description from the Supervisor.
+                  Include specific requirements (e.g., summary vs raw content) in the task.
 
         Returns:
             The final response text to return to the Supervisor
@@ -136,8 +142,8 @@ class BaseSubAgent(ABC):
             )
 
         try:
-            # Build the prompt with include_raw flag if applicable
-            prompt = self._build_prompt(task, include_raw)
+            # Build the prompt
+            prompt = self._build_prompt(task)
 
             # Execute the query
             await self._client.query(prompt)
@@ -171,7 +177,7 @@ class BaseSubAgent(ABC):
             logger.error(f"{self.name} execution failed: {e}")
             return f"Error: {self.name} failed to execute task - {str(e)}"
 
-    def _build_prompt(self, task: str, include_raw: bool) -> str:
+    def _build_prompt(self, task: str) -> str:
         """
         Build the prompt for the task.
 
@@ -179,13 +185,10 @@ class BaseSubAgent(ABC):
 
         Args:
             task: The task description
-            include_raw: Whether to include raw content
 
         Returns:
             The formatted prompt
         """
-        if include_raw:
-            return f"{task}\n\n[Note: Include original/raw content in your response]"
         return task
 
     def _should_include_queries(self) -> bool:

@@ -7,7 +7,7 @@ Autonomously selects relevant channels and summarizes or returns raw messages.
 from typing import Any, Callable, Dict, List
 
 from adapters.external.slack_client import SlackClient
-from adapters.agent.tools.slack_tool import create_slack_tools
+from adapters.agent.subagents.tools.slack_tool import create_slack_tools
 from config import Config
 from .base import BaseSubAgent
 
@@ -21,6 +21,11 @@ You must autonomously decide which channels to search based on the task.
 ## Available Tools
 - list_slack_channels: Get available channels with their descriptions
 - get_slack_messages: Get messages from a specific channel
+
+## Built-in Tools
+- WebSearch: 관련 외부 정보 검색 (예: 팀 논의 주제 관련 업계 사례)
+- WebFetch: Slack에서 공유된 링크 내용 분석
+- TodoWrite: 검색 진행 상황 추적
 
 ## Workflow
 1. First, call list_slack_channels to see available channels

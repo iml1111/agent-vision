@@ -7,7 +7,7 @@ Coordinates sub-agents to analyze growth problems.
 from types import TracebackType
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
-from claude_code_sdk import (
+from claude_agent_sdk import (
     ClaudeSDKClient,
     AssistantMessage,
     TextBlock,

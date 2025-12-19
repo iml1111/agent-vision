@@ -78,20 +78,3 @@ class GrowthMemorySummaryVO:
     experiment_cards: Optional[List[Dict[str, Any]]]
     outcome: Optional[str]
     learnings_next_actions: Optional[str]
-
-    def get_embedding_text(self) -> str:
-        """
-        Combine Problem + Bottleneck for vector embedding.
-
-        These fields are most distinctive for retrieval and provide
-        actionable context for similar case search.
-
-        Returns:
-            Combined text for embedding generation, empty string if both are None
-        """
-        parts = []
-        if self.problem_snapshot:
-            parts.append(f"Problem: {self.problem_snapshot}")
-        if self.bottleneck_evidence:
-            parts.append(f"Bottleneck: {self.bottleneck_evidence}")
-        return "\n\n".join(parts) if parts else ""

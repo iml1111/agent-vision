@@ -113,8 +113,13 @@ class GrowthMemoryService:
         # 4. Summarize with Claude API
         summary = await self._summarization_client.summarize_session(messages)
 
-        # 5. Generate embedding for vector search
-        embedding_text = summary.get_embedding_text()
+        # 5. Generate embedding for vector search (problem + bottleneck)
+        embedding_parts = []
+        if summary.problem_snapshot:
+            embedding_parts.append(f"Problem: {summary.problem_snapshot}")
+        if summary.bottleneck_evidence:
+            embedding_parts.append(f"Bottleneck: {summary.bottleneck_evidence}")
+        embedding_text = "\n\n".join(embedding_parts) if embedding_parts else ""
         if not embedding_text:
             raise SummarizationError(
                 f"Failed to generate embedding text for session {session_id}"

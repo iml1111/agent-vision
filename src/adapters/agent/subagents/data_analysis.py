@@ -8,8 +8,8 @@ from typing import Any, Callable, Dict, List
 
 from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 from adapters.external.notion_client import NotionClient
-from adapters.agent.tools.eventlog_tool import create_eventlog_tools
-from adapters.agent.tools.notion_tool import create_notion_tools
+from adapters.agent.subagents.tools.eventlog_tool import create_eventlog_tools
+from adapters.agent.subagents.tools.notion_tool import create_notion_tools
 from config import Config
 from .base import BaseSubAgent
 
@@ -23,6 +23,11 @@ You are the expert on data analysis and MongoDB aggregation pipelines.
 ## Available Tools
 - get_eventlog_specs: Get event schema definitions (understand what events and fields exist)
 - run_eventlog_aggregation: Execute MongoDB aggregation pipeline on EventLog collection
+
+## Built-in Tools
+- WebSearch: 분석 방법론, 벤치마크 데이터 검색
+- WebFetch: 외부 데이터 소스나 리포트 참조
+- TodoWrite: 다중 쿼리 분석 진행 상황 추적
 
 ## Workflow
 1. Understand the analysis task from the Supervisor
