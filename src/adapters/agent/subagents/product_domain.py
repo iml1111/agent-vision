@@ -1,0 +1,96 @@
+"""
+Product Domain Sub-Agent
+
+Specialized agent for product knowledge and Notion documentation.
+Provides product context, timelines, and feature information.
+"""
+from typing import Any, Callable, Dict, List
+
+from adapters.external.notion_client import NotionClient
+from adapters.agent.tools.notion_tool import create_notion_tools
+from config import Config
+from .base import BaseSubAgent
+
+
+PRODUCT_DOMAIN_AGENT_SYSTEM_PROMPT = """You are the Product Domain Sub-Agent in a Growth Hacking system.
+
+## Your Role
+Provide product context and background knowledge to help the Supervisor make better decisions.
+You are the expert on product features, timelines, and domain knowledge.
+
+## Available Tools
+- list_notion_pages: Get available documentation pages
+- get_notion_page: Get content from a specific page
+- get_eventlog_specs: Get EventLog event definitions (for understanding what events exist)
+
+## Workflow
+1. Understand what product context the Supervisor needs
+2. Use list_notion_pages to find relevant documentation
+3. Retrieve and synthesize information from relevant pages
+4. Use get_eventlog_specs if the task requires understanding event tracking
+
+## Response Format
+- Summarize relevant information appropriately for the context
+- If raw content is requested: Include full document content
+- Focus on context that helps growth analysis
+- Explain how the information relates to the Supervisor's task
+
+## Guidelines
+- Prioritize information that aids growth decision-making
+- Provide product timeline context when relevant
+- Explain feature relationships and dependencies
+- If information is not available in documentation, clearly state that
+- Consider both current features and historical context
+"""
+
+
+class ProductDomainAgent(BaseSubAgent):
+    """
+    Product Domain sub-agent for Notion documentation and product knowledge.
+
+    Responsibilities:
+    - Provide product context and background knowledge
+    - Retrieve and summarize Notion documentation
+    - Explain product features, timelines, and domain concepts
+    """
+
+    def __init__(
+        self,
+        notion_client: NotionClient,
+        config: Config,
+        model: str = "claude-opus-4-5",
+        max_turns: int = 20,
+    ) -> None:
+        """
+        Initialize the Product Domain agent.
+
+        Args:
+            notion_client: Notion API client
+            config: Application config for allowlist access
+            model: Claude model to use
+            max_turns: Maximum number of agent turns
+        """
+        dependencies = {
+            "notion_client": notion_client,
+            "config": config,
+        }
+        super().__init__(dependencies, model, max_turns)
+
+    @property
+    def name(self) -> str:
+        return "product-domain-agent"
+
+    @property
+    def system_prompt(self) -> str:
+        return PRODUCT_DOMAIN_AGENT_SYSTEM_PROMPT
+
+    def create_tools(self) -> List[Callable[..., Any]]:
+        """Create Notion tools for this agent."""
+        return create_notion_tools(
+            notion_client=self._dependencies["notion_client"],
+            config=self._dependencies["config"],
+        )
+
+    def _should_include_queries(self) -> bool:
+        """Product domain agent doesn't need to show queries."""
+        return False

@@ -57,17 +57,28 @@ src/
 ├── service_layer/
 │   └── application/
 │       ├── session_management_service.py   # Session CRUD
-│       ├── agent_orchestration_service.py  # Message processing + Agent execution
+│       ├── agent_orchestration_service.py  # Message processing + Supervisor execution
 │       └── growth_memory_service.py        # GrowthMemory 생성/검색
 ├── adapters/
 │   ├── agent/           # Claude Agent SDK integration
-│   │   ├── client.py        # GrowthAgentClient wrapper (MCP server 인라인 생성)
+│   │   ├── client.py        # GrowthAgentClient (deprecated, use supervisor/)
 │   │   ├── options.py       # Agent options configuration
-│   │   └── tools/           # Custom MCP tools
+│   │   ├── supervisor/      # Supervisor Agent (coordinates sub-agents)
+│   │   │   ├── client.py        # SupervisorAgentClient
+│   │   │   ├── options.py       # Supervisor options
+│   │   │   └── tools/
+│   │   │       └── subagent_tools.py  # call_slack, call_product, call_data, call_memory
+│   │   ├── subagents/       # Specialized Sub-Agents
+│   │   │   ├── base.py          # BaseSubAgent abstract class
+│   │   │   ├── slack.py         # SlackAgent
+│   │   │   ├── product_domain.py  # ProductDomainAgent
+│   │   │   ├── data_analysis.py   # DataAnalysisAgent
+│   │   │   └── memory.py        # MemoryAgent
+│   │   └── tools/           # Custom MCP tools (used by sub-agents)
 │   │       ├── eventlog_tool.py
 │   │       ├── slack_tool.py
 │   │       ├── notion_tool.py
-│   │       └── growth_memory_tool.py  # RAG 검색 도구
+│   │       └── growth_memory_tool.py
 │   ├── anthropic/       # Claude API clients
 │   │   └── summarization_client.py  # Session 요약 (6가지 단위)
 │   ├── mongodb/         # MongoDB client, collections, adapters
@@ -396,38 +407,101 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 ### New Agent Tool (Factory Pattern)
 1. `adapters/agent/tools/xxx_tool.py` - `create_xxx_tools(dependencies)` 팩토리 함수
 2. `adapters/agent/tools/__init__.py` - 팩토리 함수 export 추가
-3. `adapters/agent/client.py` - `GrowthAgentClient.__init__`에서 팩토리 호출
+3. Sub-agent에 Tool 추가 시: 해당 sub-agent의 `create_tools()` 메서드에 추가
 4. `entrypoints/worker/dependencies.py` - 필요시 의존성 추가
+
+### New Sub-Agent
+1. `adapters/agent/subagents/xxx.py` - BaseSubAgent 상속, `create_tools()` 구현
+2. `adapters/agent/subagents/__init__.py` - export 추가
+3. `adapters/agent/supervisor/tools/subagent_tools.py` - `call_xxx` Tool 추가
+4. `adapters/agent/supervisor/client.py` - sub-agent 인스턴스 생성
 
 ---
 
 ## Agent System Architecture
 
+### Supervisor + Sub-Agents Pattern
+
+Growth Agent는 Supervisor가 전문화된 Sub-Agent들을 Tool로 호출하는 협업 구조:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Supervisor Agent                             │
+│  - Model: claude-opus-4-5                                           │
+│  - Tools: call_slack, call_product, call_data, call_memory          │
+│  - 직접 외부 API 호출 없음, 서브에이전트 결과만 수신                 │
+│  - 메인 세션 히스토리 관리                                           │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              │ (Tool Call)
+      ┌───────────────┬───────┴───────┬───────────────┐
+      ▼               ▼               ▼               ▼
+┌───────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│  Slack    │ │  Product    │ │    Data     │ │   Memory    │
+│  Agent    │ │  Domain     │ │  Analysis   │ │   Agent     │
+│           │ │  Agent      │ │  Agent      │ │             │
+│ opus-4-5  │ │  opus-4-5   │ │  opus-4-5   │ │  opus-4-5   │
+├───────────┤ ├─────────────┤ ├─────────────┤ ├─────────────┤
+│ Tools:    │ │ Tools:      │ │ Tools:      │ │ Tools:      │
+│ - list_ch │ │ - list_pages│ │ - eventlog  │ │ - search_   │
+│ - get_msg │ │ - get_page  │ │   _specs    │ │   memory    │
+│           │ │ - eventlog  │ │ - eventlog  │ │ - get_sess  │
+│           │ │   _specs    │ │   _agg      │ │   _messages │
+└───────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+      │               │               │               │
+      ▼               ▼               ▼               ▼
+ [Slack API]    [Notion API]   [EventLog DB]   [GrowthMemory]
+```
+
+### Sub-Agent 역할 분담
+
+| Agent | 역할 | Tools | 핵심 책임 |
+|-------|------|-------|-----------|
+| **SlackAgent** | 팀 커뮤니케이션 | `list_slack_channels`, `get_slack_messages` | 채널 자율 선택, 요약/원문 판단 |
+| **ProductDomainAgent** | 프로덕트 지식 | `list_notion_pages`, `get_notion_page`, `get_eventlog_specs` | 배경지식 제공, 적절한 요약 |
+| **DataAnalysisAgent** | 데이터 분석 | `get_eventlog_specs`, `run_eventlog_aggregation` | 다중 쿼리 실행, 쿼리+결과 반환 |
+| **MemoryAgent** | 과거 인사이트 | `search_growth_memory`, `get_session_messages` | RAG 검색, 과거 경험 조언 |
+
+**Note**: `get_eventlog_specs`는 ProductDomainAgent(컨텍스트용)와 DataAnalysisAgent(쿼리 작성용)에 의도적으로 중복 배치.
+
 ### Tool Factory Pattern (Dependency Injection)
 
-Agent Tools는 팩토리 함수 패턴으로 의존성 주입:
+Sub-Agent Tools는 팩토리 함수 패턴으로 의존성 주입:
 
 ```python
 # adapters/agent/tools/eventlog_tool.py
-def create_eventlog_tools(eventlog_adapter) -> List:
+def create_eventlog_tools(eventlog_adapter, notion_client, config) -> List:
     @tool("run_eventlog_aggregation", ...)
     async def run_eventlog_aggregation(args): ...
-    return [run_eventlog_aggregation]
 
-# adapters/agent/client.py
-class GrowthAgentClient:
-    def __init__(self, eventlog_adapter, slack_client, notion_client, config,
-                 memory_repo, embedding_client, message_repo,
-                 model="claude-opus-4-5", resume_session_id=None):
-        tools = []
-        tools.extend(create_eventlog_tools(eventlog_adapter))
-        tools.extend(create_slack_tools(slack_client, config))
-        tools.extend(create_notion_tools(notion_client, config))
-        tools.extend(create_growth_memory_tools(memory_repo, embedding_client, message_repo))
-        self._mcp_server = create_sdk_mcp_server(tools=tools)
+    @tool("get_eventlog_specs", ...)
+    async def get_eventlog_specs(args): ...
+
+    return [run_eventlog_aggregation, get_eventlog_specs]
 ```
 
-### GrowthAgentClient Flow
+### BaseSubAgent Pattern
+
+모든 Sub-Agent는 공통 인터페이스 상속:
+
+```python
+class BaseSubAgent(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def system_prompt(self) -> str: ...
+
+    @abstractmethod
+    def create_tools(self) -> List[Callable]: ...
+
+    async def execute(self, task: str, include_raw: bool = False) -> str:
+        """단일 실행 후 최종 응답만 반환. Stateless."""
+        ...
+```
+
+### SupervisorAgentClient Flow
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -437,34 +511,71 @@ class GrowthAgentClient:
                        │
                        ▼
 ┌──────────────────────────────────────────────────────┐
-│                 GrowthAgentClient                    │
-│  (Claude Agent SDK wrapper with DI + session resume) │
+│               SupervisorAgentClient                  │
+│  (Supervisor + Sub-Agents 협업 wrapper)              │
 ├──────────────────────────────────────────────────────┤
-│  __init__(eventlog_adapter, slack_client,            │
-│           notion_client, config, memory_repo,        │
-│           embedding_client, message_repo)            │
-│  → create_*_tools() factories build MCP tools        │
+│  __init__(eventlog_adapter, slack_client, ...)       │
+│  → Sub-agents 생성 (Slack, Product, Data, Memory)    │
+│  → create_subagent_tools() 로 Supervisor Tools 생성  │
 ├──────────────────────────────────────────────────────┤
 │  stream_query() → yields AgentStreamEvent            │
-│  - TEXT: text content from assistant                 │
-│  - TOOL_USE: tool call with id, name, input          │
-│  - COMPLETE: final event with claude_session_id      │
+│  - TEXT: Supervisor 텍스트 응답                      │
+│  - TOOL_USE: Sub-agent 호출 (call_slack 등)          │
+│  - COMPLETE: 최종 완료 + claude_session_id           │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
 ┌──────────────────────────────────────────────────────┐
-│                 MCP Server (Tools)                   │
+│           Supervisor MCP Server (Tools)              │
 ├──────────────────────────────────────────────────────┤
-│  EventLog:      run_eventlog_aggregation             │
-│                 (MongoDB pipeline 직접 실행)          │
-│  Slack:         list_slack_channels, get_slack_messages │
-│  Notion:        list_notion_pages, get_notion_page,  │
-│                 get_eventlog_specs                   │
-│  GrowthMemory:  search_growth_memory                 │
-│                 (RAG 기반 유사 사례 검색)              │
-│                 get_session_messages                 │
-│                 (과거 세션 대화 기록 조회)             │
+│  call_slack:   SlackAgent.execute(task) 호출         │
+│  call_product: ProductDomainAgent.execute(task) 호출 │
+│  call_data:    DataAnalysisAgent.execute(task) 호출  │
+│  call_memory:  MemoryAgent.execute(task) 호출        │
 └──────────────────────────────────────────────────────┘
+```
+
+### Message Flow Example
+
+```
+[User] → "리텐션이 떨어지는 원인을 분석해줘"
+           │
+           ▼
+[Supervisor] → 분석 계획 수립
+           │
+           ├─ call_data("D+7 리텐션 추이 분석")
+           │     └─ DataAnalysisAgent 실행
+           │          └─ get_eventlog_specs(...)
+           │          └─ run_eventlog_aggregation(...) x N
+           │          └─ 쿼리 + 결과 반환
+           │
+           ├─ call_memory("리텐션 관련 과거 분석 사례")
+           │     └─ MemoryAgent 실행
+           │          └─ search_growth_memory(...)
+           │          └─ get_session_messages(...)
+           │          └─ 쿼리 + 인사이트 반환
+           │
+           ├─ call_slack("리텐션 관련 팀 논의 검색")
+           │     └─ SlackAgent 실행 (자율 채널 선택)
+           │          └─ list_slack_channels()
+           │          └─ get_slack_messages(...)
+           │          └─ 요약 반환
+           │
+           └─ call_product("리텐션 관련 프로덕트 컨텍스트")
+                 └─ ProductDomainAgent 실행
+                      └─ list_notion_pages()
+                      └─ get_notion_page(...)
+                      └─ 요약 반환
+           │
+           ▼
+[Supervisor] → 쿼리 검증 → 결과 종합 → 최종 응답
+           │
+           ▼
+[DB 저장] ← 메인 세션에만 저장
+           - User message
+           - Supervisor의 Tool calls (call_data 등)
+           - Sub-agent 전체 결과
+           - Supervisor의 최종 응답
 ```
 
 ### SDK Session Resume Pattern
@@ -474,29 +585,30 @@ SDK가 conversation history를 자동 관리하므로, 매번 히스토리를 �
 ```
 [First Message]
 session.claude_session_id = None
-GrowthAgentClient(resume_session_id=None) → new SDK session
+SupervisorAgentClient(resume_session_id=None) → new SDK session
 Save claude_session_id to database
 
 [Subsequent Messages]
-GrowthAgentClient(resume_session_id="sdk-xxx")
-→ SDK automatically resumes conversation context
-→ Only new user message is passed to agent
+SupervisorAgentClient(resume_session_id="sdk-xxx")
+→ SDK automatically resumes Supervisor context
+→ Only new user message is passed to Supervisor
+→ Sub-agents are stateless (no session resume)
 
 [SDK Session Expired]
 SDKSessionExpiredError → archive system session
 Return error: "Session expired, create new session"
 ```
 
-**Note**: 메시지는 DB에 저장되지만 이는 히스토리 조회용. Agent 실행 시에는 현재 user message만 전달.
+**Note**: 메시지는 DB에 저장되지만 이는 히스토리 조회용. Supervisor는 SDK session resume, Sub-agent는 항상 새 세션.
 
 ### Streaming Event Storage Pattern
 
-각 에이전트 응답 이벤트를 개별 메시지로 DB에 실시간 저장:
+Supervisor 응답 이벤트를 개별 메시지로 DB에 실시간 저장:
 
 ```python
-async for event in client.stream_query(user_message.content):
+async for event in supervisor.stream_query(user_message.content):
     if event.type == AgentMessageType.TEXT:
-        # 텍스트 응답 저장
+        # Supervisor 텍스트 응답 저장
         message = MessageEntity.create(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
@@ -506,14 +618,16 @@ async for event in client.stream_query(user_message.content):
         await message_repo.create(message)
 
     elif event.type == AgentMessageType.TOOL_USE:
-        # 도구 호출 저장
+        # Sub-agent 호출 저장 (task 정보 포함)
         message = MessageEntity.create(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
-            content=f"Tool: {event.tool_call.name}",
+            content=f"Delegated to: {event.tool_call.name}",
             metadata={
-                "event_type": "tool_use",
+                "event_type": "subagent_call",
                 "sequence": n,
+                "subagent": event.tool_call.name,
+                "task": event.tool_call.input.get("task"),
                 "tool_call": {"id": ..., "name": ..., "input": ...}
             }
         )
@@ -525,7 +639,7 @@ async for event in client.stream_query(user_message.content):
             await session_repo.update_claude_session_id(...)
 ```
 
-**장점**: 긴 응답도 실시간 진행 상황 조회 가능, 중단 시 부분 결과 보존
+**장점**: 긴 응답도 실시간 진행 상황 조회 가능, 중단 시 부분 결과 보존, Sub-agent 호출 추적
 
 ---
 

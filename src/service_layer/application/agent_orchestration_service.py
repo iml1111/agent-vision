@@ -14,7 +14,7 @@ from adapters.mongodb.collections.message_adapter import MessageAdapter
 from adapters.repositories.mongodb.agent_session import MongoAgentSessionRepository
 from adapters.repositories.mongodb.message import MongoMessageRepository
 from adapters.aws.sqs_producer import SQSProducerAdapter
-from adapters.agent.client import GrowthAgentClient
+from adapters.agent.supervisor import SupervisorAgentClient
 from domain.entities.message import MessageEntity
 from domain.value_objects.agent_enums import SessionStatus, MessageRole
 from domain.value_objects.agent_types import MessageEnqueueResultVO, AgentMessageType
@@ -180,8 +180,8 @@ class AgentOrchestrationService:
             resume_session_id = session.claude_session_id
             sequence = 0
 
-            # Execute agent with streaming - save each event to DB
-            async with GrowthAgentClient(
+            # Execute Supervisor agent with streaming - save each event to DB
+            async with SupervisorAgentClient(
                 eventlog_adapter=self._eventlog_adapter,
                 slack_client=self._slack_client,
                 notion_client=self._notion_client,
@@ -210,14 +210,22 @@ class AgentOrchestrationService:
                         logger.debug(f"Saved TEXT event #{sequence} for session {session_id}")
 
                     elif event.type == AgentMessageType.TOOL_USE and event.tool_call:
-                        # Save tool use event
+                        # Save sub-agent call event (Supervisor calls sub-agents as tools)
+                        tool_name = event.tool_call.name
+                        tool_input = event.tool_call.input or {}
+
+                        # Extract task from sub-agent call
+                        task_description = tool_input.get("task", "")
+
                         message = MessageEntity.create(
                             session_id=session_id,
                             role=MessageRole.ASSISTANT,
-                            content=f"Tool: {event.tool_call.name}",
+                            content=f"Delegated to: {tool_name}",
                             metadata={
-                                "event_type": "tool_use",
+                                "event_type": "subagent_call",
                                 "sequence": sequence,
+                                "subagent": tool_name,
+                                "task": task_description,
                                 "tool_call": {
                                     "id": event.tool_call.id,
                                     "name": event.tool_call.name,
@@ -227,7 +235,7 @@ class AgentOrchestrationService:
                             }
                         )
                         await self._message_repo.create(message)
-                        logger.debug(f"Saved TOOL_USE event #{sequence} for session {session_id}")
+                        logger.debug(f"Saved SUBAGENT_CALL event #{sequence} for session {session_id}")
 
                     elif event.type == AgentMessageType.COMPLETE:
                         # Update Claude session ID if available
