@@ -59,7 +59,6 @@ class MongoGrowthMemoryRepository(GrowthMemoryRepository):
         self,
         query_vector: List[float],
         limit: int = 5,
-        min_score: float = 0.7
     ) -> List[GrowthMemoryEntity]:
         """
         Search memories by vector similarity
@@ -69,12 +68,11 @@ class MongoGrowthMemoryRepository(GrowthMemoryRepository):
         Args:
             query_vector: Query embedding vector (1536 dimensions)
             limit: Maximum number of results
-            min_score: Minimum similarity score threshold
 
         Returns:
             List of GrowthMemoryEntity ordered by similarity
         """
-        docs = await self._adapter.vector_search(query_vector, limit, min_score)
+        docs = await self._adapter.vector_search(query_vector, limit)
 
         results = []
         for doc in docs:

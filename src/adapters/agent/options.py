@@ -78,7 +78,7 @@ def create_growth_agent_options(
         allowed_tools=GROWTH_TOOL_NAMES,
 
         # Permission mode - auto-accept tool edits
-        permission_mode="acceptEdits",
+        permission_mode="bypassPermissions",
 
         # System prompt
         system_prompt=GROWTH_AGENT_SYSTEM_PROMPT,

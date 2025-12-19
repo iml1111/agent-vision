@@ -41,6 +41,8 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
     eventlog_adapter = WorkerDependencies.get_eventlog_adapter()
     slack_client = WorkerDependencies.get_slack_client()
     notion_client = WorkerDependencies.get_notion_client()
+    memory_repo = WorkerDependencies.get_memory_repo()
+    embedding_client = WorkerDependencies.get_embedding_client()
 
     # Create service instance with agent tool dependencies
     service = AgentOrchestrationService(
@@ -48,7 +50,9 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
         eventlog_adapter=eventlog_adapter,
         slack_client=slack_client,
         notion_client=notion_client,
-        config=config
+        config=config,
+        memory_repo=memory_repo,
+        embedding_client=embedding_client,
     )
 
     # Execute agent response (handles its own error recovery)

@@ -12,7 +12,11 @@ from adapters.external.notion_client import NotionClient
 from adapters.external.slack_client import SlackClient
 from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
+from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
+from adapters.mongodb.collections.message_adapter import MessageAdapter
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
+from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
+from adapters.repositories.mongodb.message import MongoMessageRepository
 from adapters.uow.mongo_unit_of_work import MongoUnitOfWork
 from domain.ports.unit_of_work import AbstractUnitOfWork
 
@@ -54,6 +58,8 @@ class WorkerDependencies:
     _summarization_client: Optional[ClaudeSummarizationClient] = None
     _sqs_producer: Optional[SQSProducerAdapter] = None
     _eventlog_adapter: Optional[EventLogAdapter] = None
+    _memory_repo: Optional[MongoGrowthMemoryRepository] = None
+    _message_repo: Optional[MongoMessageRepository] = None
     _slack_client: Optional[SlackClient] = None
     _notion_client: Optional[NotionClient] = None
 
@@ -85,6 +91,12 @@ class WorkerDependencies:
 
         # Agent tool dependencies
         cls._eventlog_adapter = EventLogAdapter(cls._db_client.db)
+        cls._memory_repo = MongoGrowthMemoryRepository(
+            GrowthMemoryAdapter(cls._db_client.db)
+        )
+        cls._message_repo = MongoMessageRepository(
+            MessageAdapter(cls._db_client.db)
+        )
 
         if config.slack_bot_token:
             cls._slack_client = SlackClient(bot_token=config.slack_bot_token)
@@ -145,6 +157,20 @@ class WorkerDependencies:
         return cls._notion_client
 
     @classmethod
+    def get_memory_repo(cls) -> MongoGrowthMemoryRepository:
+        """Get GrowthMemory repository for RAG search"""
+        if cls._memory_repo is None:
+            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
+        return cls._memory_repo
+
+    @classmethod
+    def get_message_repo(cls) -> MongoMessageRepository:
+        """Get Message repository for session conversation retrieval"""
+        if cls._message_repo is None:
+            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
+        return cls._message_repo
+
+    @classmethod
     def get_uow_factory(cls) -> Callable[[], AbstractUnitOfWork]:
         """
         Get UnitOfWork factory
@@ -173,5 +199,7 @@ class WorkerDependencies:
         cls._summarization_client = None
         cls._sqs_producer = None
         cls._eventlog_adapter = None
+        cls._memory_repo = None
+        cls._message_repo = None
         cls._slack_client = None
         cls._notion_client = None

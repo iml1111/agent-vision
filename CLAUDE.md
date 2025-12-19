@@ -69,7 +69,8 @@ src/
 │   │   └── tools/           # Custom MCP tools
 │   │       ├── eventlog_tool.py
 │   │       ├── slack_tool.py
-│   │       └── notion_tool.py
+│   │       ├── notion_tool.py
+│   │       └── growth_memory_tool.py  # RAG 검색 도구
 │   ├── anthropic/       # Claude API clients
 │   │   └── summarization_client.py  # Session 요약 (6가지 단위)
 │   ├── mongodb/         # MongoDB client, collections, adapters
@@ -150,10 +151,11 @@ class SessionManagementService:
 
 # AgentOrchestrationService - Message processing + Agent execution
 class AgentOrchestrationService:
-    def __init__(self, db_client, eventlog_adapter=None, slack_client=None, notion_client=None, config=None): ...
+    def __init__(self, db_client, eventlog_adapter, slack_client, notion_client, config,
+                 memory_repo, embedding_client): ...
     async def enqueue_message(session_id, content, sqs_producer) -> MessageEnqueueResultVO
     async def execute_agent_response(session_id, user_message_id, sqs_producer=None) -> None
-    # Tool dependencies are passed to GrowthAgentClient for agent execution
+    # Tool dependencies (including RAG) are passed to GrowthAgentClient
 ```
 
 ---
@@ -256,13 +258,17 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
     eventlog_adapter = WorkerDependencies.get_eventlog_adapter()
     slack_client = WorkerDependencies.get_slack_client()
     notion_client = WorkerDependencies.get_notion_client()
+    memory_repo = WorkerDependencies.get_memory_repo()
+    embedding_client = WorkerDependencies.get_embedding_client()
 
     service = AgentOrchestrationService(
         db_client=db_client,
         eventlog_adapter=eventlog_adapter,
         slack_client=slack_client,
         notion_client=notion_client,
-        config=config
+        config=config,
+        memory_repo=memory_repo,
+        embedding_client=embedding_client,
     )
     await service.execute_agent_response(...)
 
@@ -414,14 +420,14 @@ def create_eventlog_tools(eventlog_adapter) -> List:
 
 # adapters/agent/client.py
 class GrowthAgentClient:
-    def __init__(self, eventlog_adapter=None, slack_client=None, notion_client=None, config=None):
+    def __init__(self, eventlog_adapter, slack_client, notion_client, config,
+                 memory_repo, embedding_client, message_repo,
+                 model="claude-opus-4-5", resume_session_id=None):
         tools = []
-        if eventlog_adapter:
-            tools.extend(create_eventlog_tools(eventlog_adapter))
-        if slack_client and config:
-            tools.extend(create_slack_tools(slack_client, config))
-        if notion_client and config:
-            tools.extend(create_notion_tools(notion_client, config))
+        tools.extend(create_eventlog_tools(eventlog_adapter))
+        tools.extend(create_slack_tools(slack_client, config))
+        tools.extend(create_notion_tools(notion_client, config))
+        tools.extend(create_growth_memory_tools(memory_repo, embedding_client, message_repo))
         self._mcp_server = create_sdk_mcp_server(tools=tools)
 ```
 
@@ -439,7 +445,8 @@ class GrowthAgentClient:
 │  (Claude Agent SDK wrapper with DI + session resume) │
 ├──────────────────────────────────────────────────────┤
 │  __init__(eventlog_adapter, slack_client,            │
-│           notion_client, config)                     │
+│           notion_client, config, memory_repo,        │
+│           embedding_client, message_repo)            │
 │  → create_*_tools() factories build MCP tools        │
 ├──────────────────────────────────────────────────────┤
 │  stream_query() → yields AgentStreamEvent            │
@@ -460,6 +467,10 @@ class GrowthAgentClient:
 │  Slack:         list_slack_channels, get_slack_messages │
 │  Notion:        list_notion_pages, get_notion_page,  │
 │                 get_eventlog_specs                   │
+│  GrowthMemory:  search_growth_memory                 │
+│                 (RAG 기반 유사 사례 검색)              │
+│                 get_session_messages                 │
+│                 (과거 세션 대화 기록 조회)             │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -628,3 +639,35 @@ python scripts/archive_session.py <session_id>
 # 수동 아카이브 (메모리 추출 스킵)
 python scripts/archive_session.py <session_id> --skip-memory
 ```
+
+### GrowthMemory Tools
+
+Agent가 과거 유사 사례를 검색하고 대화 기록을 조회할 수 있는 MCP 도구:
+
+```python
+# adapters/agent/tools/growth_memory_tool.py
+def create_growth_memory_tools(memory_repo, embedding_client, message_repo) -> List:
+    @tool("search_growth_memory", ...)
+    async def search_growth_memory(args):
+        # query 텍스트 → 임베딩 → Vector Search → 유사 메모리 반환
+        ...
+
+    @tool("get_session_messages", ...)
+    async def get_session_messages(args):
+        # session_id로 과거 대화 기록 조회
+        messages = await message_repo.get_by_session_id(session_id, limit)
+        return formatted_messages
+
+    return [search_growth_memory, get_session_messages]
+```
+
+**Tool Specs**:
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `search_growth_memory` | `query` (required), `limit` (optional, default: 3, max: 10) | Vector Search로 유사 사례 검색 |
+| `get_session_messages` | `session_id` (required), `limit` (optional, default: 50, max: 100) | 과거 세션 대화 기록 조회 |
+
+**사용 흐름**:
+1. `search_growth_memory`로 유사 사례 검색 → `session_id` 반환
+2. `get_session_messages`로 해당 세션의 실제 대화 기록 조회

@@ -42,7 +42,9 @@ class AgentOrchestrationService:
         eventlog_adapter: Any = None,
         slack_client: Any = None,
         notion_client: Any = None,
-        config: Any = None
+        config: Any = None,
+        memory_repo: Any = None,
+        embedding_client: Any = None,
     ):
         """
         Initialize the orchestration service.
@@ -53,6 +55,8 @@ class AgentOrchestrationService:
             slack_client: Slack client for Slack tools
             notion_client: Notion client for Notion tools
             config: Application config for allowlist access
+            memory_repo: GrowthMemory repository for RAG search
+            embedding_client: OpenAI client for query embedding
         """
         self._session_repo = MongoAgentSessionRepository(
             AgentSessionAdapter(db_client.db)
@@ -64,6 +68,8 @@ class AgentOrchestrationService:
         self._slack_client = slack_client
         self._notion_client = notion_client
         self._config = config
+        self._memory_repo = memory_repo
+        self._embedding_client = embedding_client
 
     async def _get_session(self, session_id: str):
         """
@@ -176,11 +182,14 @@ class AgentOrchestrationService:
 
             # Execute agent with streaming - save each event to DB
             async with GrowthAgentClient(
-                resume_session_id=resume_session_id,
                 eventlog_adapter=self._eventlog_adapter,
                 slack_client=self._slack_client,
                 notion_client=self._notion_client,
-                config=self._config
+                config=self._config,
+                memory_repo=self._memory_repo,
+                embedding_client=self._embedding_client,
+                message_repo=self._message_repo,
+                resume_session_id=resume_session_id,
             ) as client:
                 async for event in client.stream_query(user_message.content):
                     sequence += 1

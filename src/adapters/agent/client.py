@@ -3,17 +3,31 @@ Growth Agent Client
 
 High-level wrapper for Claude SDK client with session lifecycle management.
 """
-from typing import AsyncIterator, Any, Optional
-from logging_config import get_logger
+from types import TracebackType
+from typing import AsyncIterator, Any, List, Optional, Type
 
 from claude_code_sdk import ClaudeSDKClient, AssistantMessage, TextBlock, ToolUseBlock, create_sdk_mcp_server
+from logging_config import get_logger
+
+from adapters.external.notion_client import NotionClient
+from adapters.external.slack_client import SlackClient
+from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
+from adapters.openai.embedding_client import OpenAIEmbeddingClient
+from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
+from adapters.repositories.mongodb.message import MongoMessageRepository
+from config import Config
 from domain.value_objects import (
     AgentMessageType,
     ToolCallVO,
     AgentStreamEvent,
 )
 from .options import create_growth_agent_options
-from .tools import create_eventlog_tools, create_slack_tools, create_notion_tools
+from .tools import (
+    create_eventlog_tools,
+    create_growth_memory_tools,
+    create_notion_tools,
+    create_slack_tools,
+)
 
 logger = get_logger(__name__)
 
@@ -26,39 +40,38 @@ class GrowthAgentClient:
     managing session lifecycle and message handling.
     """
 
-    _MAX_TURNS = 100
-
     def __init__(
         self,
+        eventlog_adapter: EventLogAdapter,
+        slack_client: SlackClient,
+        notion_client: NotionClient,
+        config: Config,
+        memory_repo: MongoGrowthMemoryRepository,
+        embedding_client: OpenAIEmbeddingClient,
+        message_repo: MongoMessageRepository,
         model: str = "claude-opus-4-5",
         resume_session_id: Optional[str] = None,
-        eventlog_adapter=None,
-        slack_client=None,
-        notion_client=None,
-        config=None,
-    ):
+    ) -> None:
         """
         Initialize the Growth Agent client.
 
         Args:
-            model: Claude model to use
-            resume_session_id: Optional SDK session ID to resume
             eventlog_adapter: EventLog collection adapter for analytics tools
             slack_client: Slack API client for Slack tools
             notion_client: Notion API client for Notion tools
             config: Application config for allowlist access
+            memory_repo: GrowthMemory repository for RAG search
+            embedding_client: OpenAI client for query embedding
+            message_repo: Message repository for session conversation retrieval
+            model: Claude model to use
+            resume_session_id: Optional SDK session ID to resume
         """
         # Build tools from factories with injected dependencies
-        tools = []
-
-        if eventlog_adapter:
-            tools.extend(create_eventlog_tools(eventlog_adapter))
-
-        if slack_client and config:
-            tools.extend(create_slack_tools(slack_client, config))
-
-        if notion_client and config:
-            tools.extend(create_notion_tools(notion_client, config))
+        tools: List[Any] = []
+        tools.extend(create_eventlog_tools(eventlog_adapter))
+        tools.extend(create_slack_tools(slack_client, config))
+        tools.extend(create_notion_tools(notion_client, config))
+        tools.extend(create_growth_memory_tools(memory_repo, embedding_client, message_repo))
 
         self._mcp_server = create_sdk_mcp_server(
             name="growth-tools",
@@ -67,7 +80,7 @@ class GrowthAgentClient:
         )
         self._options = create_growth_agent_options(
             mcp_server=self._mcp_server,
-            max_turns=self._MAX_TURNS,
+            max_turns=100,
             model=model,
             resume_session_id=resume_session_id
         )
@@ -85,7 +98,12 @@ class GrowthAgentClient:
         await self._client.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         """Async context manager exit"""
         if self._client:
             await self._client.__aexit__(exc_type, exc_val, exc_tb)

@@ -56,7 +56,7 @@ class GrowthMemoryAdapter(BaseMongoAdapter):
         self,
         query_vector: List[float],
         limit: int = 5,
-        min_score: float = 0.7
+        min_score: float = 0.5
     ) -> List[Dict[str, Any]]:
         """
         Perform Atlas Vector Search on content_vector field.
