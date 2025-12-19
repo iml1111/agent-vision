@@ -86,24 +86,11 @@ async def lifespan(app: FastAPI):
         )
         logger.info("SQS Producer initialized")
 
-    # Initialize Agent Hook Dependencies (for allowlist validation)
-    _initialize_agent_hook_dependencies(app)
-
     yield
 
     # Cleanup
     app.state.db_client.close()
     logger.info("Database connection closed")
-
-
-def _initialize_agent_hook_dependencies(app: FastAPI):
-    """Initialize dependencies for agent hooks (allowlist validation)"""
-    from adapters.agent.hooks.pre_tool_use import set_hook_dependencies
-
-    # Set hook dependencies for allowlist validation
-    set_hook_dependencies(config=app.state.config)
-
-    logger.info("Agent hook dependencies initialized")
 
 
 def create_app(config: Config = None) -> FastAPI:

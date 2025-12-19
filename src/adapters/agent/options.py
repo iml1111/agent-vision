@@ -5,17 +5,8 @@ Creates ClaudeAgentOptions with proper configuration for growth hacking workflow
 """
 from typing import Optional
 from pathlib import Path
-from claude_code_sdk import ClaudeAgentOptions, HookMatcher
+from claude_code_sdk import ClaudeAgentOptions
 from adapters.agent.tools import GROWTH_TOOL_NAMES
-from adapters.agent.hooks.pre_tool_use import (
-    validate_slack_allowlist,
-    validate_notion_allowlist,
-    log_tool_call,
-)
-from adapters.agent.hooks.post_tool_use import (
-    capture_observation,
-    audit_log,
-)
 
 
 # Default system prompt for growth agent
@@ -88,40 +79,6 @@ def create_growth_agent_options(
 
         # Model selection
         model=model,
-
-        # Hooks configuration
-        hooks={
-            "PreToolUse": [
-                # Allowlist validation hooks
-                HookMatcher(
-                    matcher="mcp__growth-tools__get_slack_messages",
-                    hooks=[validate_slack_allowlist, log_tool_call]
-                ),
-                HookMatcher(
-                    matcher="mcp__growth-tools__query_notion_database",
-                    hooks=[validate_notion_allowlist, log_tool_call]
-                ),
-                HookMatcher(
-                    matcher="mcp__growth-tools__get_notion_page",
-                    hooks=[validate_notion_allowlist, log_tool_call]
-                ),
-                # Log all tool calls
-                HookMatcher(
-                    matcher=None,  # Match all tools
-                    hooks=[log_tool_call]
-                ),
-            ],
-            "PostToolUse": [
-                # Capture observations and audit log for all tools
-                HookMatcher(
-                    matcher=None,  # Match all tools
-                    hooks=[capture_observation, audit_log]
-                ),
-            ],
-        },
-
-        # Streaming for real-time updates
-        include_partial_messages=True,
     )
 
     # Add optional working directory

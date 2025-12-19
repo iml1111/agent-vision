@@ -63,9 +63,6 @@ src/
 │   ├── agent/           # Claude Agent SDK integration
 │   │   ├── client.py        # GrowthAgentClient wrapper (MCP server 인라인 생성)
 │   │   ├── options.py       # Agent options configuration
-│   │   ├── hooks/           # Agent lifecycle hooks
-│   │   │   ├── pre_tool_use.py     # Allowlist validation, tool logging
-│   │   │   └── post_tool_use.py    # Audit logging, observation capture
 │   │   └── tools/           # Custom MCP tools
 │   │       ├── eventlog_tool.py
 │   │       ├── slack_tool.py
@@ -242,7 +239,6 @@ async def lifespan(app: FastAPI):
     app.state.sqs_producer = SQSProducerAdapter(...)
     app.state.slack_client = SlackClient(...) if token else None
     app.state.notion_client = NotionClient(...) if key else None
-    _initialize_agent_hook_dependencies(app)  # For allowlist validation
     yield
     app.state.db_client.close()
 ```
@@ -453,9 +449,6 @@ class GrowthAgentClient:
 │  - TEXT: text content from assistant                 │
 │  - TOOL_USE: tool call with id, name, input          │
 │  - COMPLETE: final event with claude_session_id      │
-├──────────────────────────────────────────────────────┤
-│  PreToolUse:   Allowlist validation, tool logging    │
-│  PostToolUse:  Audit logging, observation capture    │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
