@@ -19,7 +19,7 @@ from domain.entities.message import MessageEntity
 logger = get_logger(__name__)
 
 
-TOOL_DESCRIPTION = """Search similar past Growth cases from memory.
+SEARCH_GROWTH_MEMORY_DESCRIPTION = """Search similar past Growth cases from memory.
 
 Use this tool to find historical Growth analyses that are similar to the current problem.
 Returns past cases with their problem definitions, bottlenecks, hypotheses, and outcomes.
@@ -43,7 +43,7 @@ Returns a list of similar cases, each containing:
 """
 
 
-GET_MESSAGES_DESCRIPTION = """Get conversation history from a past Growth session.
+GET_SESSION_MESSAGES_DESCRIPTION = """Get conversation history from a past Growth session.
 
 Use this tool to retrieve the actual messages exchanged during a past session.
 Call this after search_growth_memory to see the full conversation details.
@@ -101,7 +101,7 @@ def create_growth_memory_tools(
 
     @tool(
         "search_growth_memory",
-        TOOL_DESCRIPTION,
+        SEARCH_GROWTH_MEMORY_DESCRIPTION,
         {
             "query": str,
             "limit": Optional[int],
@@ -163,7 +163,7 @@ def create_growth_memory_tools(
 
     @tool(
         "get_session_messages",
-        GET_MESSAGES_DESCRIPTION,
+        GET_SESSION_MESSAGES_DESCRIPTION,
         {
             "session_id": str,
             "limit": Optional[int],

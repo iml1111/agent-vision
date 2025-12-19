@@ -93,7 +93,7 @@ def _validate_pipeline(pipeline: List[Dict[str, Any]]) -> tuple[bool, str]:
 
 
 # Tool description with full schema documentation
-TOOL_DESCRIPTION = """Execute MongoDB aggregation pipeline on EventLog collection.
+RUN_EVENTLOG_AGGREGATION_DESCRIPTION = """Execute MongoDB aggregation pipeline on EventLog collection.
 
 ## EventLog Document Schema
 
@@ -171,7 +171,7 @@ def create_eventlog_tools(eventlog_adapter: EventLogAdapter) -> List[Callable[..
 
     @tool(
         "run_eventlog_aggregation",
-        TOOL_DESCRIPTION,
+        RUN_EVENTLOG_AGGREGATION_DESCRIPTION,
         {
             "pipeline": List[Dict[str, Any]],
         }
