@@ -88,7 +88,7 @@ class ClaudeSummarizationClient:
     Returns deterministic JSON output for 6 growth memory units.
     """
 
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-opus-4-5"
     MAX_TOKENS = 4096
 
     def __init__(self, api_key: str):
