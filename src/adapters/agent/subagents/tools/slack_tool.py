@@ -164,7 +164,7 @@ Returns messages with:
 get_slack_messages(channel_id="C0123456789", limit=20)""",
         {
             "channel_id": str,
-            "limit": int,
+            "limit": Optional[int],
             "oldest": Optional[str],
             "latest": Optional[str]
         }
