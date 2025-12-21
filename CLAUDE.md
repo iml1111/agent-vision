@@ -483,11 +483,34 @@ Supervisor 및 모든 Sub-Agent에서 사용 가능한 기본 도구:
 | **WebSearch** | 외부 정보 검색 (벤치마크, 트렌드, 경쟁사) |
 | **WebFetch** | URL 콘텐츠 분석 (공유 링크, 문서) |
 | **TodoWrite** | 분석 진행 상황 추적 |
+| **SequentialThinking** | 복잡한 문제의 단계별 구조화된 사고 |
 
 ```python
 # adapters/agent/subagents/base.py
-SUBAGENT_BUILTIN_TOOLS = ["WebSearch", "WebFetch", "TodoWrite"]
+SUBAGENT_BUILTIN_TOOLS = [
+    "WebSearch",
+    "WebFetch",
+    "TodoWrite",
+    "mcp__sequential-thinking__sequentialthinking",
+]
 ```
+
+### External MCP Integration
+
+npx를 통해 외부 MCP 서버를 Supervisor와 모든 Sub-Agent에 통합:
+
+```python
+# supervisor/options.py, subagents/base.py
+mcp_servers={
+    "internal-tools": internal_mcp_server,  # SDK MCP (인-프로세스)
+    "sequential-thinking": {                 # External MCP (npx)
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    }
+}
+```
+
+**Requirements**: Node.js (npx 실행용)
 
 ### BaseSubAgent Pattern
 

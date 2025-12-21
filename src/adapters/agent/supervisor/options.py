@@ -106,7 +106,11 @@ def create_supervisor_options(
     options = ClaudeAgentOptions(
         # MCP Server configuration
         mcp_servers={
-            "supervisor-tools": mcp_server
+            "supervisor-tools": mcp_server,
+            "sequential-thinking": {
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+            }
         },
 
         # Tool permissions - only sub-agent tools

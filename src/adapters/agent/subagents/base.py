@@ -21,7 +21,12 @@ from logging_config import get_logger
 logger = get_logger(__name__)
 
 # Built-in tools available to all sub-agents
-SUBAGENT_BUILTIN_TOOLS = ["WebSearch", "WebFetch", "TodoWrite"]
+SUBAGENT_BUILTIN_TOOLS = [
+    "WebSearch",
+    "WebFetch",
+    "TodoWrite",
+    "mcp__sequential-thinking__sequentialthinking",
+]
 
 
 class BaseSubAgent(ABC):
@@ -96,7 +101,13 @@ class BaseSubAgent(ABC):
         allowed_tools.extend(SUBAGENT_BUILTIN_TOOLS)
 
         return ClaudeAgentOptions(
-            mcp_servers={f"{self.name}-tools": self._mcp_server},
+            mcp_servers={
+                f"{self.name}-tools": self._mcp_server,
+                "sequential-thinking": {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+                }
+            },
             allowed_tools=allowed_tools,
             permission_mode="bypassPermissions",
             system_prompt=self.system_prompt,

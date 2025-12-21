@@ -237,4 +237,6 @@ SUPERVISOR_TOOL_NAMES: List[str] = [
     "WebSearch",
     "WebFetch",
     "TodoWrite",
+    # External MCP tools
+    "mcp__sequential-thinking__sequentialthinking",
 ]
