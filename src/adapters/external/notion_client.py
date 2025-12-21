@@ -157,8 +157,23 @@ class NotionClient(HTTPClient):
                 f"blocks/{page_id}/children",
                 params=params
             )
+            blocks = response.get("results", [])
+
+            # Fetch table rows for table blocks
+            for block in blocks:
+                if block.get("type") == "table" and block.get("has_children"):
+                    try:
+                        rows_response = await self.get(
+                            f"blocks/{block['id']}/children",
+                            params={"page_size": 100}
+                        )
+                        block["table_rows"] = rows_response.get("results", [])
+                    except Exception as table_err:
+                        logger.warning(f"Failed to fetch table rows: {table_err}")
+                        block["table_rows"] = []
+
             return {
-                "blocks": response.get("results", []),
+                "blocks": blocks,
                 "has_more": response.get("has_more", False),
                 "next_cursor": response.get("next_cursor")
             }

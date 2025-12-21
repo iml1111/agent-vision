@@ -337,4 +337,41 @@ def _format_block(block: Dict[str, Any]) -> str:
         icon = block_content.get("icon", {}).get("emoji", "💡")
         return f"{icon} {text}\n\n"
 
+    elif block_type == "table":
+        return _format_table(block)
+
     return ""
+
+
+def _format_table(block: Dict[str, Any]) -> str:
+    """Format table block to markdown table"""
+    table_info = block.get("table", {})
+    rows = block.get("table_rows", [])
+
+    if not rows:
+        return "[Empty table]\n\n"
+
+    table_width = table_info.get("table_width", 0)
+    has_header = table_info.get("has_column_header", False)
+
+    result = ""
+    for idx, row in enumerate(rows):
+        cells = row.get("table_row", {}).get("cells", [])
+        values = []
+        for cell in cells:
+            cell_text = "".join([t.get("plain_text", "") for t in cell])
+            # Escape pipe characters in cell content
+            cell_text = cell_text.replace("|", "\\|")
+            values.append(cell_text)
+
+        result += "| " + " | ".join(values) + " |\n"
+
+        # Add separator after header row
+        if idx == 0:
+            if has_header:
+                result += "|" + "|".join(["---"] * table_width) + "|\n"
+            else:
+                # No header, add separator after first row anyway for valid markdown
+                result += "|" + "|".join(["---"] * table_width) + "|\n"
+
+    return result + "\n"
