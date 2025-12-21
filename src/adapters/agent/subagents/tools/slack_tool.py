@@ -28,7 +28,14 @@ def create_slack_tools(slack_client: SlackClient, config: Config) -> List[Callab
 
     @tool(
         "list_slack_channels",
-        "List available Slack channels from the allowlist",
+        """List available Slack channels from the allowlist.
+
+Returns a list of allowed channels with:
+- channel_name: Channel display name (e.g., #growth-data)
+- channel_id: Slack channel ID (use with get_slack_messages)
+- description: Channel purpose/description
+
+Use this to discover available channels before calling get_slack_messages.""",
         {}
     )
     async def list_slack_channels(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,7 +63,22 @@ def create_slack_tools(slack_client: SlackClient, config: Config) -> List[Callab
 
     @tool(
         "get_slack_messages",
-        "Get messages from a Slack channel",
+        """Get messages from a Slack channel.
+
+## Parameters
+- channel_id (required): Slack channel ID (e.g., "C0123456789")
+- limit (optional): Max messages to return (default: 50, max: 100)
+- oldest (optional): Only messages after this Unix timestamp (e.g., "1234567890.123456")
+- latest (optional): Only messages before this Unix timestamp
+
+## Response Format
+Returns messages with:
+- ts: Message timestamp
+- user: User ID who sent the message
+- text: Message content (truncated to 500 chars)
+
+## Example
+get_slack_messages(channel_id="C0123456789", limit=20)""",
         {
             "channel_id": str,
             "limit": int,

@@ -28,7 +28,14 @@ def create_notion_tools(notion_client: NotionClient, config: Config) -> List[Cal
 
     @tool(
         "list_notion_pages",
-        "List available Notion pages from the allowlist",
+        """List available Notion pages from the allowlist.
+
+Returns a list of allowed pages with:
+- page_name: Page title
+- page_id: Notion page ID (use with get_notion_page)
+- description: Page purpose/description
+
+Use this to discover available pages before calling get_notion_page.""",
         {}
     )
     async def list_notion_pages(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,7 +63,20 @@ def create_notion_tools(notion_client: NotionClient, config: Config) -> List[Cal
 
     @tool(
         "get_notion_page",
-        "Get properties and content from a Notion page",
+        """Get content from a Notion page.
+
+## Parameters
+- page_id (required): Notion page ID from list_notion_pages
+
+## Response Format
+Returns the page content as formatted text:
+- Headings (#, ##, ###)
+- Paragraphs
+- Bullet/numbered lists
+- Code blocks with language
+- Quotes and callouts
+
+Note: Page properties are not included, only the main content body.""",
         {
             "page_id": str
         }
@@ -123,7 +143,23 @@ def create_notion_tools(notion_client: NotionClient, config: Config) -> List[Cal
 
     @tool(
         "get_eventlog_specs",
-        "Get EventLog specification definitions from Notion DB. Returns all event definitions with name, description, and extra fields.",
+        """Get EventLog specification definitions from Notion DB.
+
+Returns all event definitions with:
+- 이름: Event name/type (e.g., "login_success", "complete_purchase")
+- Description: Event description and purpose
+- Extra Fields: Additional fields in the extra object for this event
+
+Use this to understand available events before running aggregation queries.
+
+## Example Response
+1. login_success
+   Description: 로그인 성공 시 발생
+   Extra Fields: email, login_method
+
+2. complete_purchase
+   Description: 결제 완료 시 발생
+   Extra Fields: order_id, total_amount, credit_count""",
         {}
     )
     async def get_eventlog_specs(args: Dict[str, Any]) -> Dict[str, Any]:
