@@ -168,8 +168,6 @@ class SupervisorAgentClient:
         Args:
             prompt: The prompt/query to send
         """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
         await self._client.query(prompt)
 
     async def receive_response(self) -> AsyncIterator[Any]:
@@ -179,9 +177,6 @@ class SupervisorAgentClient:
         Yields:
             Response messages from the agent
         """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
-
         async for message in self._client.receive_response():
             yield message
 
@@ -235,9 +230,6 @@ class SupervisorAgentClient:
         Yields:
             AgentStreamEvent: Each response event in real-time
         """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
-
         await self.query(prompt)
 
         async for message in self.receive_response():

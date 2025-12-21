@@ -150,11 +150,6 @@ class BaseSubAgent(ABC):
         Returns:
             SubAgentExecutionResult containing final response and all internal events
         """
-        if not self._client:
-            raise RuntimeError(
-                f"{self.name}: Client not initialized. Use 'async with' context manager."
-            )
-
         started_at = datetime.now(timezone.utc)
         events: List[Dict[str, Any]] = []
         response_parts: List[str] = []

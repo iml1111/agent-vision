@@ -135,11 +135,6 @@ Use this to discover available channels before calling get_slack_messages.""",
         """
         channels = config.slack_channels
 
-        if not channels:
-            return {
-                "content": [{"type": "text", "text": "No Slack channels configured in allowlist"}]
-            }
-
         response_text = "Available Slack Channels:\n"
         for channel in channels:
             desc = f" - {channel.description}" if channel.description else ""

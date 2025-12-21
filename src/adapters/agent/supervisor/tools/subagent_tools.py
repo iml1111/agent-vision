@@ -99,12 +99,7 @@ def create_subagent_tools(
         model: Optional[str] = None
     ) -> None:
         """Save sub-agent execution trace to database."""
-        if not (trace_repo and session_id and parent_message_id_getter):
-            return
-
         parent_msg_id = parent_message_id_getter()
-        if not parent_msg_id:
-            return
 
         try:
             trace = SubAgentTraceEntity.create(
@@ -142,12 +137,7 @@ def create_subagent_tools(
                 "is_error": True
             }
 
-        agent = subagents.get("slack")
-        if not agent:
-            return {
-                "content": [{"type": "text", "text": "Error: Slack agent not available"}],
-                "is_error": True
-            }
+        agent = subagents["slack"]
 
         try:
             async with agent:
@@ -178,12 +168,7 @@ def create_subagent_tools(
                 "is_error": True
             }
 
-        agent = subagents.get("product")
-        if not agent:
-            return {
-                "content": [{"type": "text", "text": "Error: Product domain agent not available"}],
-                "is_error": True
-            }
+        agent = subagents["product"]
 
         try:
             async with agent:
@@ -214,12 +199,7 @@ def create_subagent_tools(
                 "is_error": True
             }
 
-        agent = subagents.get("data")
-        if not agent:
-            return {
-                "content": [{"type": "text", "text": "Error: Data analysis agent not available"}],
-                "is_error": True
-            }
+        agent = subagents["data"]
 
         try:
             async with agent:
@@ -250,12 +230,7 @@ def create_subagent_tools(
                 "is_error": True
             }
 
-        agent = subagents.get("memory")
-        if not agent:
-            return {
-                "content": [{"type": "text", "text": "Error: Memory agent not available"}],
-                "is_error": True
-            }
+        agent = subagents["memory"]
 
         try:
             async with agent:

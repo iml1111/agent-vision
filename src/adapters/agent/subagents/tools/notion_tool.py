@@ -47,11 +47,6 @@ Use this to discover available pages before calling get_notion_page.""",
         """
         pages = config.notion_pages
 
-        if not pages:
-            return {
-                "content": [{"type": "text", "text": "No Notion pages configured in allowlist"}]
-            }
-
         response_text = "Available Notion Pages:\n"
         for page in pages:
             desc = f" - {page.description}" if page.description else ""
@@ -170,12 +165,6 @@ Use this to understand available events before running aggregation queries.
             List of event specifications with name, description, and extra fields
         """
         db_id = config.notion_eventlog_spec_db_id
-
-        if not db_id:
-            return {
-                "content": [{"type": "text", "text": "EventLog spec database ID not configured"}],
-                "is_error": True
-            }
 
         try:
             # Fetch all events with pagination
