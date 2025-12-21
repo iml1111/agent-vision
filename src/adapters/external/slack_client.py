@@ -125,6 +125,49 @@ class SlackClient(HTTPClient):
             logger.error(f"Failed to get messages: {e}")
             raise SlackAPIError(f"Failed to get messages: {e}") from e
 
+    async def get_thread_replies(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Get replies in a thread
+
+        Args:
+            channel_id: Slack channel ID (C...)
+            thread_ts: Timestamp of the parent message
+            limit: Maximum number of replies to return (default 100)
+
+        Returns:
+            Dict with messages list (includes parent + replies)
+
+        Raises:
+            SlackAPIError: If API call fails
+        """
+        params = {
+            "channel": channel_id,
+            "ts": thread_ts,
+            "limit": min(limit, 1000)
+        }
+
+        try:
+            response = await self.get("conversations.replies", params=params)
+            await self._check_response(response, "conversations.replies")
+
+            # First message is the parent, rest are replies
+            messages = response.get("messages", [])
+            return {
+                "messages": messages[1:] if len(messages) > 1 else [],  # Exclude parent
+                "has_more": response.get("has_more", False)
+            }
+
+        except SlackAPIError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get thread replies: {e}")
+            raise SlackAPIError(f"Failed to get thread replies: {e}") from e
+
     async def list_channels(
         self,
         types: str = "public_channel,private_channel",
