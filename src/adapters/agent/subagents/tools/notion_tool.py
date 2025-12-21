@@ -30,12 +30,18 @@ def create_notion_tools(notion_client: NotionClient, config: Config) -> List[Cal
         "list_notion_pages",
         """List available Notion pages from the allowlist.
 
+## When to Use
+- First step before retrieving any Notion content
+- When you need to find the right document for a product context question
+- When unsure which document contains the information you need
+
+## Response Format
 Returns a list of allowed pages with:
 - page_name: Page title
 - page_id: Notion page ID (use with get_notion_page)
 - description: Page purpose/description
 
-Use this to discover available pages before calling get_notion_page.""",
+Always call this first to identify relevant documents before using get_notion_page.""",
         {}
     )
     async def list_notion_pages(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -59,6 +65,12 @@ Use this to discover available pages before calling get_notion_page.""",
     @tool(
         "get_notion_page",
         """Get content from a Notion page.
+
+## When to Use
+- When you need detailed product context (feature descriptions, timelines, business decisions)
+- When explaining WHY certain product decisions were made
+- When providing release context or roadmap information
+- After calling list_notion_pages to identify the relevant document
 
 ## Parameters
 - page_id (required): Notion page ID from list_notion_pages
@@ -140,12 +152,17 @@ Note: Page properties are not included, only the main content body.""",
         "get_eventlog_specs",
         """Get EventLog specification definitions from Notion DB.
 
+## When to Use
+- Before writing aggregation queries to understand available events and fields
+- When you need to know what extra fields exist for a specific event type
+- When exploring unfamiliar event types or validating field names
+- When the decision-maker asks about event tracking coverage
+
+## Response Format
 Returns all event definitions with:
 - Name: Event name/type (e.g., "login_success", "complete_purchase")
 - Description: Event description and purpose
 - Extra Fields: Additional fields in the extra object for this event
-
-Use this to understand available events before running aggregation queries.
 
 ## Example Response
 1. login_success

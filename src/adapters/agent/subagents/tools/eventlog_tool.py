@@ -108,32 +108,39 @@ RUN_EVENTLOG_AGGREGATION_DESCRIPTION = """Execute MongoDB aggregation pipeline o
 ### Optional Fields
 - user_id: string - User identifier (logged-in users only)
 - stage: string - Deployment environment (dev, staging, prod)
-- utm_source: string - UTM source (e.g., "google", "twitter")
-- utm_campaign: string - UTM campaign (e.g., "launch_q4")
+- utm_source: string - UTM source (e.g., "ig", "google", "facebook")
+- utm_campaign: string - UTM campaign (e.g., "Leslie_251023")
 
 ### Dynamic Field
 - extra: object - Additional event-specific data
-  * Examples: extra.email, extra.order_id, extra.total_amount, extra.referrer_url
+  * Common fields: email, utm_medium, referrer_url
+  * Page view events: path, page_title
+  * Click events: button_id
+  * Scroll events: (no additional fields beyond common)
+  * Notification events: notification_id, notification_type
+  * Mock interview events: mode
+  * Purchase events: order_id, total_amount, credit_count
   * Different extra fields for each event type (see Event Specs)
 
-### Example Document
+### Example Document (page_view_intro)
 ```json
 {
-  "_id": "69421be07f11027ec52647ec",
-  "event": "complete_purchase",
-  "timestamp": "2025-12-17T02:56:32.083Z",
-  "session_id": "d5721a1e-2004-4269-a14a-a69d248af0ca",
-  "platform": "pc_web",
+  "_id": "6947f5a798ee9039846229f9",
+  "event": "page_view_intro",
+  "timestamp": "2025-12-21T13:27:03.726Z",
+  "session_id": "d07056f8-1c46-49c9-aba4-a52409957a09",
+  "platform": "mobile_web",
   "version": "1.0.5",
-  "user_id": "69395379738483dbf0e14e8b",
+  "user_id": null,
   "stage": "prod",
-  "utm_source": null,
-  "utm_campaign": null,
+  "utm_source": "ig",
+  "utm_campaign": "Leslie_251023",
   "extra": {
-    "email": "user@example.com",
-    "order_id": "LES-202512171155-XWIKXZ",
-    "total_amount": 0,
-    "credit_count": 0
+    "email": null,
+    "utm_medium": "Instagram_Reels",
+    "referrer_url": "https://leslieai.io/?utm_source=ig&...",
+    "path": "/",
+    "page_title": "Leslie AI | AI Career Mentor for Jobs and Transitions"
   }
 }
 ```

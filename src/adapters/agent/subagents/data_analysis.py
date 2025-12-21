@@ -55,14 +55,14 @@ EventLog is a MongoDB collection storing user behavior events from the Leslie AI
 
 **Extra Fields (event-specific, varies by event type):**
 
-Common examples:
-- `email`: User email (when logged in)
-- `utm_medium`: UTM medium (e.g., "Instagram_Reels")
-- `referrer_url`: Referrer URL (traffic origin)
-- `path`: Page path (e.g., "/", "/login")
-- `page_title`: Page title
-- `order_id`, `total_amount`: Purchase events
-- `credit_count`, `plan_type`: Subscription events
+| Category | Fields |
+|----------|--------|
+| Common | `email`, `utm_medium`, `referrer_url` |
+| Page view | `path`, `page_title` |
+| Click | `button_id` |
+| Notification | `notification_id`, `notification_type` |
+| Mock interview | `mode` |
+| Purchase | `order_id`, `total_amount`, `credit_count` |
 
 Note: Extra fields vary by event. Use `get_eventlog_specs` tool to see exact fields for each event type.
 

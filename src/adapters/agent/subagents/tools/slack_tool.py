@@ -76,7 +76,7 @@ def _format_files(files: List[Dict[str, Any]]) -> str:
 def _format_message(msg: Dict[str, Any], indent: str = "") -> str:
     """Format a single Slack message with optional indentation for thread replies"""
     user = msg.get("user") or msg.get("bot_id") or "unknown"
-    text = msg.get("text", "")[:500]
+    text = msg.get("text", "")
     ts = msg.get("ts", "")
 
     result = f"{indent}[{ts}] {user}: {text}\n"
@@ -85,7 +85,7 @@ def _format_message(msg: Dict[str, Any], indent: str = "") -> str:
     if "blocks" in msg:
         block_text = _extract_block_text(msg["blocks"])
         if block_text and block_text not in text:
-            result += f"{indent}  [blocks]: {block_text[:300]}\n"
+            result += f"{indent}  [blocks]: {block_text}\n"
 
     # Attachments (link previews)
     if "attachments" in msg:
@@ -118,12 +118,18 @@ def create_slack_tools(slack_client: SlackClient, config: Config) -> List[Callab
         "list_slack_channels",
         """List available Slack channels from the allowlist.
 
+## When to Use
+- First step before retrieving any Slack messages
+- When you need to find the right channel for a discussion topic
+- When matching task domain to channel purpose
+
+## Response Format
 Returns a list of allowed channels with:
 - channel_name: Channel display name (e.g., #growth-data)
 - channel_id: Slack channel ID (use with get_slack_messages)
 - description: Channel purpose/description
 
-Use this to discover available channels before calling get_slack_messages.""",
+Always call this first to identify relevant channels before using get_slack_messages.""",
         {}
     )
     async def list_slack_channels(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -148,6 +154,12 @@ Use this to discover available channels before calling get_slack_messages.""",
         "get_slack_messages",
         """Get messages from a Slack channel.
 
+## When to Use
+- When you need team discussion context behind the metrics
+- When looking for decision rationale, experiment discussions, or user feedback
+- When tracing the timeline of team decisions or concerns
+- After calling list_slack_channels to identify the relevant channel
+
 ## Parameters
 - channel_id (required): Slack channel ID (e.g., "C0123456789")
 - limit (optional): Max messages to return (default: 50, max: 100)
@@ -155,10 +167,18 @@ Use this to discover available channels before calling get_slack_messages.""",
 - latest (optional): Only messages before this Unix timestamp
 
 ## Response Format
-Returns messages with:
+Each message includes:
 - ts: Message timestamp
 - user: User ID who sent the message
-- text: Message content (truncated to 500 chars)
+- text: Message content (full text)
+- [blocks]: Rich text content if present (full text)
+- [links]: Link previews from attachments
+- [files]: Attached file names and links
+- [thread: N replies]: Thread replies are automatically fetched and indented
+
+## Thread Handling
+Thread replies are automatically included when a message has replies.
+No additional API call needed—threads are fetched and displayed with indentation.
 
 ## Example
 get_slack_messages(channel_id="C0123456789", limit=20)""",
