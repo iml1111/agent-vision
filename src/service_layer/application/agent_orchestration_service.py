@@ -45,6 +45,7 @@ class AgentOrchestrationService:
         config: Any = None,
         memory_repo: Any = None,
         embedding_client: Any = None,
+        trace_repo: Any = None,
     ):
         """
         Initialize the orchestration service.
@@ -57,6 +58,7 @@ class AgentOrchestrationService:
             config: Application config for allowlist access
             memory_repo: GrowthMemory repository for RAG search
             embedding_client: OpenAI client for query embedding
+            trace_repo: SubAgentTrace repository for sub-agent execution tracing
         """
         self._session_repo = MongoAgentSessionRepository(
             AgentSessionAdapter(db_client.db)
@@ -70,6 +72,7 @@ class AgentOrchestrationService:
         self._config = config
         self._memory_repo = memory_repo
         self._embedding_client = embedding_client
+        self._trace_repo = trace_repo
 
     async def _get_session(self, session_id: str):
         """
@@ -190,6 +193,8 @@ class AgentOrchestrationService:
                 embedding_client=self._embedding_client,
                 message_repo=self._message_repo,
                 resume_session_id=resume_session_id,
+                trace_repo=self._trace_repo,
+                session_id=session_id,
             ) as client:
                 async for event in client.stream_query(user_message.content):
                     sequence += 1

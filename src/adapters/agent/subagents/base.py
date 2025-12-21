@@ -5,6 +5,7 @@ Defines the common interface for all sub-agents in the Growth Hacking system.
 Each sub-agent is a specialized, stateless agent that executes tasks delegated by the Supervisor.
 """
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Type
 
@@ -16,6 +17,8 @@ from claude_agent_sdk import (
     ToolUseBlock,
     create_sdk_mcp_server,
 )
+
+from domain.value_objects.agent_types import SubAgentExecutionResult
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -133,9 +136,9 @@ class BaseSubAgent(ABC):
             await self._client.__aexit__(exc_type, exc_val, exc_tb)
             self._client = None
 
-    async def execute(self, task: str) -> str:
+    async def execute(self, task: str) -> SubAgentExecutionResult:
         """
-        Execute a task and return the final response.
+        Execute a task and return the result with trace data.
 
         This is a stateless execution - each call is independent.
         The sub-agent may call multiple tools internally before returning.
@@ -145,12 +148,19 @@ class BaseSubAgent(ABC):
                   Include specific requirements (e.g., summary vs raw content) in the task.
 
         Returns:
-            The final response text to return to the Supervisor
+            SubAgentExecutionResult containing final response and all internal events
         """
         if not self._client:
             raise RuntimeError(
                 f"{self.name}: Client not initialized. Use 'async with' context manager."
             )
+
+        started_at = datetime.now(timezone.utc)
+        events: List[Dict[str, Any]] = []
+        response_parts: List[str] = []
+        executed_queries: List[Dict[str, Any]] = []
+        sequence = 0
+        error = None
 
         try:
             # Build the prompt
@@ -159,20 +169,31 @@ class BaseSubAgent(ABC):
             # Execute the query
             await self._client.query(prompt)
 
-            # Collect all text responses
-            response_parts: List[str] = []
-            executed_queries: List[Dict[str, Any]] = []
-
+            # Collect all responses and events
             async for message in self._client.receive_response():
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
+                        sequence += 1
                         if isinstance(block, TextBlock):
                             response_parts.append(block.text)
+                            events.append({
+                                "sequence": sequence,
+                                "type": "text",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "content": block.text
+                            })
                         elif isinstance(block, ToolUseBlock):
                             # Track tool usage for transparency
                             executed_queries.append({
                                 "tool": block.name,
                                 "input": block.input,
+                            })
+                            events.append({
+                                "sequence": sequence,
+                                "type": "tool_use",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "tool_name": block.name,
+                                "tool_input": block.input
                             })
 
             # Combine response with executed queries for transparency
@@ -182,11 +203,22 @@ class BaseSubAgent(ABC):
                 queries_summary = self._format_executed_queries(executed_queries)
                 final_response = f"{final_response}\n\n---\n{queries_summary}"
 
-            return final_response
-
         except Exception as e:
             logger.error(f"{self.name} execution failed: {e}")
-            return f"Error: {self.name} failed to execute task - {str(e)}"
+            error = str(e)
+            final_response = f"Error: {self.name} failed to execute task - {str(e)}"
+
+        completed_at = datetime.now(timezone.utc)
+        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+
+        return SubAgentExecutionResult(
+            final_response=final_response,
+            events=events,
+            started_at=started_at,
+            completed_at=completed_at,
+            duration_ms=duration_ms,
+            error=error
+        )
 
     def _build_prompt(self, task: str) -> str:
         """

@@ -78,3 +78,19 @@ class GrowthMemorySummaryVO:
     experiment_cards: Optional[List[Dict[str, Any]]]
     outcome: Optional[str]
     learnings_next_actions: Optional[str]
+
+
+@dataclass(frozen=True)
+class SubAgentExecutionResult:
+    """
+    Sub-agent execution result Value Object
+
+    Contains the final response and all internal events for trace storage.
+    Used to capture sub-agent behavior for debugging and analysis.
+    """
+    final_response: str
+    events: List[Dict[str, Any]]
+    started_at: datetime
+    completed_at: datetime
+    duration_ms: int
+    error: Optional[str] = None

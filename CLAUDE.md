@@ -45,14 +45,16 @@ src/
 │   ├── entities/
 │   │   ├── agent_session.py    # Session entity
 │   │   ├── message.py          # Conversation message entity
-│   │   └── growth_memory.py    # GrowthMemory entity (6개 요약 단위)
+│   │   ├── growth_memory.py    # GrowthMemory entity (6개 요약 단위)
+│   │   └── subagent_trace.py   # SubAgentTrace entity (디버깅/분석용)
 │   ├── ports/           # Repository interfaces
 │   │   ├── agent_session.py
 │   │   ├── message.py
-│   │   └── growth_memory.py    # vector_search 포함
+│   │   ├── growth_memory.py    # vector_search 포함
+│   │   └── subagent_trace.py   # Sub-agent trace repository
 │   ├── value_objects/
 │   │   ├── agent_enums.py      # SessionStatus, MessageRole
-│   │   └── agent_types.py      # ToolCallVO, AgentStreamEvent, GrowthMemorySummaryVO
+│   │   └── agent_types.py      # ToolCallVO, AgentStreamEvent, SubAgentExecutionResult
 │   └── exceptions.py    # Domain exceptions (SummarizationError 포함)
 ├── service_layer/
 │   └── application/
@@ -82,10 +84,12 @@ src/
 │   ├── mongodb/         # MongoDB client, collections, adapters
 │   │   └── collections/
 │   │       ├── eventlog_adapter.py       # EventLog aggregation (analytics tools)
-│   │       └── growth_memory_adapter.py  # $vectorSearch 지원
+│   │       ├── growth_memory_adapter.py  # $vectorSearch 지원
+│   │       └── subagent_trace_adapter.py # SubAgentTrace collection
 │   ├── repositories/    # Repository implementations
 │   │   └── mongodb/
-│   │       └── growth_memory.py  # vector_search 구현
+│   │       ├── growth_memory.py    # vector_search 구현
+│   │       └── subagent_trace.py   # SubAgentTrace repository
 │   ├── aws/             # SQS producer/consumer
 │   ├── openai/          # OpenAI embedding client (text-embedding-3-small)
 │   ├── external/        # Slack, Notion API clients
@@ -97,7 +101,7 @@ src/
 │   │   └── schemas/agent.py # Request/Response schemas
 │   ├── worker/          # SQS Worker
 │   │   ├── app.py           # Worker entry point
-│   │   ├── dependencies.py  # Worker dependencies (db, sqs_producer, summarization)
+│   │   ├── dependencies.py  # Worker dependencies (db, sqs_producer, trace_repo 등)
 │   │   └── tasks/
 │   │       ├── agent_tasks.py   # @task process_agent_response
 │   │       └── memory_tasks.py  # @task archive_session_to_memory
@@ -158,10 +162,10 @@ class SessionManagementService:
 # AgentOrchestrationService - Message processing + Agent execution
 class AgentOrchestrationService:
     def __init__(self, db_client, eventlog_adapter, slack_client, notion_client, config,
-                 memory_repo, embedding_client): ...
+                 memory_repo, embedding_client, trace_repo): ...
     async def enqueue_message(session_id, content, sqs_producer) -> MessageEnqueueResultVO
     async def execute_agent_response(session_id, user_message_id, sqs_producer=None) -> None
-    # Tool dependencies (including RAG) are passed to SupervisorAgentClient
+    # Tool dependencies (including RAG, trace) are passed to SupervisorAgentClient
 ```
 
 ---
@@ -265,6 +269,7 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
     notion_client = WorkerDependencies.get_notion_client()
     memory_repo = WorkerDependencies.get_memory_repo()
     embedding_client = WorkerDependencies.get_embedding_client()
+    trace_repo = WorkerDependencies.get_trace_repo()
 
     service = AgentOrchestrationService(
         db_client=db_client,
@@ -274,6 +279,7 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
         config=config,
         memory_repo=memory_repo,
         embedding_client=embedding_client,
+        trace_repo=trace_repo,
     )
     await service.execute_agent_response(...)
 
@@ -461,6 +467,32 @@ Growth Agent는 Supervisor가 전문화된 Sub-Agent들을 Tool로 호출하는 
 
 **Note**: `get_eventlog_specs`는 ProductDomainAgent(컨텍스트용)와 DataAnalysisAgent(쿼리 작성용)에 의도적으로 중복 배치.
 
+### Slack Tool Enhanced Features
+
+`get_slack_messages` Tool은 다음 요소를 지원:
+
+| 요소 | 처리 방식 |
+|------|-----------|
+| **text** | 메시지 본문 (500자 제한) |
+| **blocks** | rich_text, section, header, context 블록에서 텍스트 추출 |
+| **attachments** | 링크 프리뷰를 마크다운 링크로 변환 |
+| **files** | 파일명 + 링크 형태로 간략화 |
+| **thread replies** | `reply_count > 0`인 메시지에서 스레드 답글 자동 조회 (들여쓰기 표시) |
+
+```python
+# adapters/agent/subagents/tools/slack_tool.py 헬퍼 함수
+_extract_block_text(blocks)    # 블록에서 텍스트 추출
+_format_attachments(attachments)  # 첨부파일 → 마크다운 링크
+_format_files(files)           # 파일 → 마크다운 링크
+_format_message(msg, indent)   # 메시지 포맷팅 (스레드 들여쓰기 지원)
+```
+
+```python
+# adapters/external/slack_client.py
+async def get_thread_replies(channel_id, thread_ts, limit) -> Dict:
+    """conversations.replies API로 스레드 답글 조회 (부모 메시지 제외)"""
+```
+
 ### Tool Factory Pattern (Dependency Injection)
 
 Sub-Agent Tools는 팩토리 함수 패턴으로 의존성 주입:
@@ -529,8 +561,8 @@ class BaseSubAgent(ABC):
     @abstractmethod
     def create_tools(self) -> List[Callable]: ...
 
-    async def execute(self, task: str) -> str:
-        """단일 실행 후 최종 응답만 반환. Stateless."""
+    async def execute(self, task: str) -> SubAgentExecutionResult:
+        """단일 실행 후 결과와 내부 이벤트 반환. Stateless."""
         ...
 ```
 
@@ -811,3 +843,93 @@ def create_growth_memory_tools(memory_repo, embedding_client, message_repo) -> L
 **사용 흐름**:
 1. `search_growth_memory`로 유사 사례 검색 → `session_id` 반환
 2. `get_session_messages`로 해당 세션의 실제 대화 기록 조회
+
+---
+
+## Sub-Agent Trace System
+
+Sub-agent 내부 이벤트(TEXT, TOOL_USE 등)를 별도 Collection에 영구 저장하여 디버깅/분석 용도로 추적.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    messages (기존)                          │
+│  metadata.subagent_call 이벤트에서 tool_call.id로 연결      │
+└─────────────────────────────────────────────────────────────┘
+                              │ 1:N
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              SubAgentTrace (신규 Collection)                │
+│  session_id, parent_message_id, agent_name, task           │
+│  events: [{type, content, tool_name, tool_input, ...}]     │
+│  result, started_at, completed_at, duration_ms             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### SubAgentTraceEntity 구조
+
+```python
+@dataclass(eq=False, frozen=True)
+class SubAgentTraceEntity(BaseEntity):
+    session_id: str              # 부모 세션 ID
+    parent_message_id: str       # Supervisor TOOL_USE 메시지 ID
+    agent_name: str              # "slack", "product", "data", "memory"
+    task: str                    # 위임받은 task
+    created_at: datetime
+    id: Optional[str] = None
+
+    events: Optional[List[Dict[str, Any]]] = None  # 이벤트 목록
+    result: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    model: Optional[str] = None
+    error: Optional[str] = None
+```
+
+**events 배열 요소 구조**:
+```python
+{
+    "sequence": int,
+    "type": "text" | "tool_use",
+    "timestamp": str,  # ISO format
+    "content": str,              # type=text
+    "tool_name": str,            # type=tool_use
+    "tool_input": Dict           # type=tool_use
+}
+```
+
+### SubAgentExecutionResult VO
+
+Sub-agent 실행 결과를 trace 데이터와 함께 반환:
+
+```python
+@dataclass(frozen=True)
+class SubAgentExecutionResult:
+    final_response: str
+    events: List[Dict[str, Any]]
+    started_at: datetime
+    completed_at: datetime
+    duration_ms: int
+    error: Optional[str] = None
+```
+
+### Trace Flow
+
+```
+Supervisor TOOL_USE (call_slack)
+       ↓ parent_message_id 캡처 (tool_call.id)
+SubAgent.execute(task)
+       ↓ events 수집 (TEXT, TOOL_USE)
+SubAgentExecutionResult 반환
+       ↓
+_save_trace() → SubAgentTraceEntity 생성 → MongoDB 저장
+```
+
+### MongoDB Index
+
+```javascript
+db.SubAgentTrace.createIndex({ "session_id": 1, "created_at": 1 })
+db.SubAgentTrace.createIndex({ "parent_message_id": 1 })
+```

@@ -4,12 +4,15 @@ Sub-Agent Tools for Supervisor
 Provides tools that allow the Supervisor to delegate tasks to specialized sub-agents.
 Each tool wraps a sub-agent execution and returns results to the Supervisor.
 """
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from claude_agent_sdk import tool
-from logging_config import get_logger
 
 from adapters.agent.subagents.base import BaseSubAgent
+from domain.entities.subagent_trace import SubAgentTraceEntity
+from domain.ports.subagent_trace import SubAgentTraceRepository
+from domain.value_objects.agent_types import SubAgentExecutionResult
+from logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -71,6 +74,9 @@ Example: call_memory(task="Find past analyses related to checkout funnel optimiz
 
 def create_subagent_tools(
     subagents: Dict[str, BaseSubAgent],
+    trace_repo: Optional[SubAgentTraceRepository] = None,
+    session_id: Optional[str] = None,
+    parent_message_id_getter: Optional[Callable[[], Optional[str]]] = None,
 ) -> List[Callable[..., Any]]:
     """
     Create tools that allow Supervisor to call sub-agents.
@@ -78,10 +84,46 @@ def create_subagent_tools(
     Args:
         subagents: Dictionary mapping agent keys to agent instances
             Expected keys: "slack", "product", "data", "memory"
+        trace_repo: Repository for saving sub-agent traces (optional)
+        session_id: Parent session ID for trace association (optional)
+        parent_message_id_getter: Callable to get current parent message ID (optional)
 
     Returns:
         List of @tool decorated functions for the Supervisor
     """
+
+    async def _save_trace(
+        agent_name: str,
+        task: str,
+        result: SubAgentExecutionResult,
+        model: Optional[str] = None
+    ) -> None:
+        """Save sub-agent execution trace to database."""
+        if not (trace_repo and session_id and parent_message_id_getter):
+            return
+
+        parent_msg_id = parent_message_id_getter()
+        if not parent_msg_id:
+            return
+
+        try:
+            trace = SubAgentTraceEntity.create(
+                session_id=session_id,
+                parent_message_id=parent_msg_id,
+                agent_name=agent_name,
+                task=task,
+                events=result.events,
+                result=result.final_response,
+                started_at=result.started_at,
+                completed_at=result.completed_at,
+                duration_ms=result.duration_ms,
+                model=model,
+                error=result.error
+            )
+            await trace_repo.create(trace)
+            logger.debug(f"Saved trace for {agent_name} agent")
+        except Exception as e:
+            logger.error(f"Failed to save trace for {agent_name}: {e}")
 
     @tool(
         "call_slack",
@@ -110,7 +152,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            return {"content": [{"type": "text", "text": result}]}
+            await _save_trace("slack", task, result, agent._model)
+            return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Slack agent execution failed: {e}")
             return {
@@ -145,7 +188,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            return {"content": [{"type": "text", "text": result}]}
+            await _save_trace("product", task, result, agent._model)
+            return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Product domain agent execution failed: {e}")
             return {
@@ -180,7 +224,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            return {"content": [{"type": "text", "text": result}]}
+            await _save_trace("data", task, result, agent._model)
+            return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Data analysis agent execution failed: {e}")
             return {
@@ -215,7 +260,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            return {"content": [{"type": "text", "text": result}]}
+            await _save_trace("memory", task, result, agent._model)
+            return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Memory agent execution failed: {e}")
             return {

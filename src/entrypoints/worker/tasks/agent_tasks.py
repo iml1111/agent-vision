@@ -43,6 +43,7 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
     notion_client = WorkerDependencies.get_notion_client()
     memory_repo = WorkerDependencies.get_memory_repo()
     embedding_client = WorkerDependencies.get_embedding_client()
+    trace_repo = WorkerDependencies.get_trace_repo()
 
     # Create service instance with agent tool dependencies
     service = AgentOrchestrationService(
@@ -53,6 +54,7 @@ async def process_agent_response(data: Dict[str, Any]) -> None:
         config=config,
         memory_repo=memory_repo,
         embedding_client=embedding_client,
+        trace_repo=trace_repo,
     )
 
     # Execute agent response (handles its own error recovery)

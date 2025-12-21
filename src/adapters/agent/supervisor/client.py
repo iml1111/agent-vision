@@ -22,6 +22,7 @@ from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 from adapters.repositories.mongodb.message import MongoMessageRepository
+from adapters.repositories.mongodb.subagent_trace import MongoSubAgentTraceRepository
 from config import Config
 from domain.value_objects import AgentMessageType, ToolCallVO, AgentStreamEvent
 
@@ -62,6 +63,8 @@ class SupervisorAgentClient:
         message_repo: MongoMessageRepository,
         model: str = "claude-opus-4-5",
         resume_session_id: Optional[str] = None,
+        trace_repo: Optional[MongoSubAgentTraceRepository] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         """
         Initialize the Supervisor Agent client.
@@ -76,7 +79,14 @@ class SupervisorAgentClient:
             message_repo: Message repository for session retrieval
             model: Claude model to use (default: claude-opus-4-5)
             resume_session_id: Optional SDK session ID to resume
+            trace_repo: Optional repository for sub-agent trace storage
+            session_id: Optional session ID for trace association
         """
+        # Store trace context
+        self._trace_repo = trace_repo
+        self._session_id = session_id
+        self._current_parent_message_id: Optional[str] = None
+
         # Create sub-agents with their dependencies
         self._subagents: Dict[str, Any] = {
             "slack": SlackAgent(
@@ -103,8 +113,13 @@ class SupervisorAgentClient:
             ),
         }
 
-        # Create tools that wrap sub-agent execution
-        tools = create_subagent_tools(self._subagents)
+        # Create tools that wrap sub-agent execution (with trace support)
+        tools = create_subagent_tools(
+            self._subagents,
+            trace_repo=trace_repo,
+            session_id=session_id,
+            parent_message_id_getter=lambda: self._current_parent_message_id,
+        )
 
         # Create MCP server with sub-agent tools
         self._mcp_server = create_sdk_mcp_server(
@@ -228,6 +243,9 @@ class SupervisorAgentClient:
         async for message in self.receive_response():
             event = self._parse_message_to_event(message)
             if event:
+                # Track parent message ID for sub-agent trace association
+                if event.type == AgentMessageType.TOOL_USE and event.tool_call:
+                    self._current_parent_message_id = event.tool_call.id
                 yield event
 
         # Completion event
