@@ -9,7 +9,7 @@
 Agent Vision은 Growth Hacking을 위한 대화형 AI 에이전트 백엔드 시스템입니다.
 DDD + Hexagonal Architecture 패턴을 따릅니다.
 
-**기술 스택**: Python 3.9+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | AWS SQS
+**기술 스택**: Python 3.12+ | FastAPI | MongoDB (Motor) | Claude Agent SDK | AWS SQS
 
 **핵심 기능**:
 - Conversational Agent: 연속 대화 기반 Growth 분석 (Async Worker 처리)

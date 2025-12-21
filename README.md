@@ -13,7 +13,7 @@ AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Claude Agent
 
 ## Tech Stack
 
-- **Runtime**: Python 3.9+
+- **Runtime**: Python 3.12+
 - **Framework**: FastAPI
 - **Database**: MongoDB (Motor)
 - **AI/LLM**: Claude Agent SDK
