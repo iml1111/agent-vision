@@ -98,23 +98,23 @@ RUN_EVENTLOG_AGGREGATION_DESCRIPTION = """Execute MongoDB aggregation pipeline o
 ## EventLog Document Schema
 
 ### Core Fields (Always Available)
-- event: string - 이벤트 타입 (예: "login_success", "page_view", "complete_purchase")
-- timestamp: datetime (UTC) - 이벤트 발생 시각
-- session_id: string - 세션 식별자
-- platform: enum - 플랫폼 구분
+- event: string - Event type (e.g., "login_success", "page_view", "complete_purchase")
+- timestamp: datetime (UTC) - When the event occurred
+- session_id: string - Session identifier
+- platform: enum - Platform identifier
   * Values: api, pc_web, mobile_web, ios, android, ipad, mac_app, windows_app, chrome_extension, safari_extension, smart_tv, kiosk, wearable
-- version: string - 앱/서비스 버전
+- version: string - App/service version
 
 ### Optional Fields
-- user_id: string - 유저 식별자 (로그인 사용자만)
-- stage: string - 배포 환경 (dev, staging, prod)
-- utm_source: string - UTM 소스 (예: "google", "twitter")
-- utm_campaign: string - UTM 캠페인 (예: "launch_q4")
+- user_id: string - User identifier (logged-in users only)
+- stage: string - Deployment environment (dev, staging, prod)
+- utm_source: string - UTM source (e.g., "google", "twitter")
+- utm_campaign: string - UTM campaign (e.g., "launch_q4")
 
 ### Dynamic Field
-- extra: object - 이벤트별 추가 데이터
-  * 예시: extra.email, extra.order_id, extra.total_amount, extra.referrer_url
-  * 각 event 타입마다 다른 extra 필드 사용 (Event Specs 참조)
+- extra: object - Additional event-specific data
+  * Examples: extra.email, extra.order_id, extra.total_amount, extra.referrer_url
+  * Different extra fields for each event type (see Event Specs)
 
 ### Example Document
 ```json

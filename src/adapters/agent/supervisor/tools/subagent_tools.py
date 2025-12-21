@@ -19,56 +19,83 @@ logger = get_logger(__name__)
 
 # Tool Descriptions
 
-SLACK_AGENT_DESCRIPTION = """Delegate task to Slack Agent for team communication retrieval.
+SLACK_AGENT_DESCRIPTION = """Discover the WHY behind the metrics through team communications.
 
-The Slack Agent will:
-- Autonomously select relevant channels based on the task
-- Search and retrieve Slack messages
-- Summarize or return raw messages based on task requirements
+Data tells you WHAT happened; Slack reveals WHY and what the team thinks about it.
+
+Use when you need:
+- Decision context: Why the team chose a direction, what alternatives were considered
+- Experiment discussions: Team reactions to A/B tests, feature launches
+- User feedback: VoC, complaints, success stories shared in channels
+- Problem recognition: Early warnings, concerns raised by team members
+- Informal insights: Knowledge that never made it to documentation
 
 Parameters:
-- task (required): Description of what information to find. Specify if you need raw messages or summary.
+- task (required): What context you need. Include time hints if relevant (e.g., "recent", "around launch date").
 
-Example: call_slack(task="Find discussions about retention drop last week and summarize key points")
+Examples:
+- call_slack(task="Recent team discussions and concerns about retention drop")
+- call_slack(task="Alternatives the team considered when deciding to redesign onboarding")
 """
 
-PRODUCT_AGENT_DESCRIPTION = """Delegate task to Product Domain Agent for product knowledge.
+PRODUCT_AGENT_DESCRIPTION = """Understand WHY data patterns appear through product context.
 
-The Product Domain Agent will:
-- Search Notion documentation for relevant information
-- Provide product context, features, and timelines
-- Summarize or return full content based on task requirements
+Data shows WHAT happened; Product context explains WHY it happened.
+
+Use when you need:
+- Release Context: When features launched, what changed (to interpret metric shifts)
+- Business Background: Why certain decisions were made
+- Roadmap Alignment: How current metrics relate to future plans
+- Domain Knowledge: Product-specific terminology and feature relationships
 
 Parameters:
-- task (required): Description of what product context is needed. Specify if you need full content or summary.
+- task (required): What product context you need. Be specific about the feature, timeline, or decision.
 
-Example: call_product(task="Get context on the onboarding flow and summarize recent changes")
+Examples:
+- call_product(task="When was the new onboarding flow launched and what changed?")
+- call_product(task="Business background for the credit system redesign")
 """
 
-DATA_AGENT_DESCRIPTION = """Delegate task to Data Analysis Agent for EventLog analysis.
+DATA_AGENT_DESCRIPTION = """Provide quantifiable evidence through EventLog data analysis.
 
-The Data Analysis Agent will:
-- Design and execute MongoDB aggregation pipelines
-- May run multiple queries for comprehensive analysis
-- Return results WITH executed queries for verification
+Other agents explain WHY (Slack) or WHAT (Notion); Data agent tells you HOW MUCH, HOW FAST, and WHAT'S THE TREND.
+
+Use when you need:
+- Metrics & KPIs: DAU, retention rates, conversion rates, revenue
+- Trend analysis: Time-series patterns, growth/decline detection
+- Funnel analysis: Step-by-step conversion, drop-off points
+- Cohort analysis: D+1, D+7, D+30 retention by user segments
+- UTM attribution: Traffic source and campaign performance
+- User behavior: Event sequences, engagement patterns
+
+Data source: EventLog collection (Leslie AI platform user events)
+- Core fields: event, timestamp, session_id, platform, user_id
+- 100+ event types: page views, clicks, scrolls, purchases, etc.
+
+Returns: Results with executed queries for verification and learning.
 
 Parameters:
-- task (required): Description of the analysis to perform
+- task (required): What to analyze. Include time range and specific metrics.
 
-Example: call_data(task="Analyze D+7 retention trend for last 30 days")
+Examples:
+- call_data(task="D+7 retention trend over the last 30 days, weekly comparison")
+- call_data(task="Signup conversion rate by utm_source")
+- call_data(task="Onboarding funnel drop-off rates by step")
 """
 
-MEMORY_AGENT_DESCRIPTION = """Delegate task to Growth Memory Agent for historical insights.
+MEMORY_AGENT_DESCRIPTION = """Search past Growth sessions for historical insights via RAG.
 
-The Growth Memory Agent will:
-- Search past Growth sessions via RAG (vector search)
-- Retrieve full conversation history from relevant sessions
-- Return insights WITH executed search queries for verification
+Use when you need: similar past analyses, proven hypotheses, experiment results, or lessons learned.
+
+Returns structured insights per session:
+- problem/bottleneck: What was analyzed and why
+- hypotheses/experiment_cards: What was tested
+- outcome/learnings: What worked and key takeaways
 
 Parameters:
-- task (required): Description of what historical context is needed
+- task (required): Describe the problem context. Include metric names or feature areas for better matches.
 
-Example: call_memory(task="Find past analyses related to checkout funnel optimization")
+Example: call_memory(task="Past retention analyses - especially onboarding funnel optimization cases")
 """
 
 

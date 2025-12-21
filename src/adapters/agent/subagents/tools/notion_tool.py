@@ -141,7 +141,7 @@ Note: Page properties are not included, only the main content body.""",
         """Get EventLog specification definitions from Notion DB.
 
 Returns all event definitions with:
-- 이름: Event name/type (e.g., "login_success", "complete_purchase")
+- Name: Event name/type (e.g., "login_success", "complete_purchase")
 - Description: Event description and purpose
 - Extra Fields: Additional fields in the extra object for this event
 
@@ -149,11 +149,11 @@ Use this to understand available events before running aggregation queries.
 
 ## Example Response
 1. login_success
-   Description: 로그인 성공 시 발생
+   Description: Triggered on successful login
    Extra Fields: email, login_method
 
 2. complete_purchase
-   Description: 결제 완료 시 발생
+   Description: Triggered on purchase completion
    Extra Fields: order_id, total_amount, credit_count""",
         {}
     )

@@ -67,6 +67,7 @@ def _format_memory_for_response(memory: GrowthMemoryEntity) -> Dict[str, Any]:
         "problem": memory.problem_snapshot,
         "bottleneck": memory.bottleneck_evidence,
         "hypotheses": memory.hypotheses,
+        "experiment_cards": memory.experiment_cards,
         "outcome": memory.outcome,
         "learnings": memory.learnings_next_actions,
         "created_at": memory.created_at.isoformat() if memory.created_at else None,
