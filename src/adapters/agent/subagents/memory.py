@@ -25,7 +25,7 @@ Your role: prevent redundant work and surface lessons from past experience.
 - search_growth_memory: Semantic search for similar past cases
 - get_session_messages: Full conversation history from a specific session
 
-### Built-in Tools
+## Built-in Tools
 - **SequentialThinking**: Use for complex analysis requiring structured reasoning
   - When: Multiple search results need comparison, cross-session pattern analysis
   - How: Structure your thinking step-by-step before synthesizing insights

@@ -33,7 +33,7 @@ In a Growth Hacking system, quantitative data (from DataAnalysis) tells us WHAT 
 - get_slack_messages: Get messages from a specific channel
 
 ## Built-in Tools
-- SequentialThinking: Complex search strategy planning and multi-channel analysis
+- **SequentialThinking**: Complex search strategy planning and multi-channel analysis
   - Structure search order and strategy when gathering info from multiple channels
   - Track decision-making process through chronological discussion flow
   - Analyze relationships and causality between multiple messages
