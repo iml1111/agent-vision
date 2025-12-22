@@ -68,46 +68,81 @@ class AgentChatClient:
         response.raise_for_status()
         return response.json()
 
-    async def poll_until_active(
+    async def poll_and_stream(
         self,
         session_id: str,
-        interval: float = 3.0,
-        max_attempts: int = 100
-    ) -> str:
+        last_message_count: int,
+        interval: float = 1.5,
+        max_attempts: int = 200
+    ) -> tuple[str, int]:
         """
-        Poll status until session becomes active.
+        Poll status and stream new messages in real-time.
 
         Args:
             session_id: Session ID to poll
+            last_message_count: Last known message count
             interval: Polling interval in seconds
-            max_attempts: Maximum polling attempts (default 5 minutes)
+            max_attempts: Maximum polling attempts
 
         Returns:
-            Final status string
+            Tuple of (final_status, new_message_count)
         """
         spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         attempt = 0
+        current_count = last_message_count
+        first_output = True
 
         while attempt < max_attempts:
+            # Get status and messages in parallel
             status_data = await self.get_status(session_id)
             status = status_data.get("status", "unknown")
 
+            # Check for new messages
+            messages_data = await self.get_messages(session_id)
+            messages = messages_data.get("messages", [])
+            new_count = messages_data.get("total_count", 0)
+
+            # Print new messages immediately
+            if new_count > current_count:
+                # Clear spinner line
+                print("\r" + " " * 40 + "\r", end="", flush=True)
+
+                # Get only new assistant messages
+                new_messages = [
+                    m for m in messages[current_count:]
+                    if m.get("role") == "assistant"
+                ]
+
+                if first_output and new_messages:
+                    print()  # Empty line before first message
+                    first_output = False
+
+                for msg in new_messages:
+                    print_message(msg)
+
+                current_count = new_count
+
+            # Check terminal conditions
             if status == "active":
-                print("\r" + " " * 30 + "\r", end="", flush=True)
-                return status
+                if not first_output:
+                    print()  # Empty line after messages
+                else:
+                    print("\r" + " " * 40 + "\r", end="", flush=True)
+                return status, current_count
 
             if status == "archived":
-                print("\r" + " " * 30 + "\r", end="", flush=True)
-                return status
+                print("\r" + " " * 40 + "\r", end="", flush=True)
+                return status, current_count
 
+            # Show spinner
             spin_char = spinner[attempt % len(spinner)]
-            print(f"\r[Processing...] {spin_char}", end="", flush=True)
+            print(f"\r{Colors.DIM}[Processing...] {spin_char}{Colors.RESET}", end="", flush=True)
 
             await asyncio.sleep(interval)
             attempt += 1
 
-        print("\r" + " " * 30 + "\r", end="", flush=True)
-        return "timeout"
+        print("\r" + " " * 40 + "\r", end="", flush=True)
+        return "timeout", current_count
 
 
 def print_header():
@@ -129,6 +164,12 @@ def print_message(msg: dict) -> None:
         subagent = metadata.get("subagent", "unknown")
         task = metadata.get("task", content)
         print(f"{Colors.DIM}   🔧 [{subagent}] {task}{Colors.RESET}")
+
+        # Print trace events (tool calls)
+        traces = msg.get("traces") or []
+        for event in traces:
+            tool_name = event.get("tool_name", "unknown")
+            print(f"{Colors.DIM}      📊 {tool_name}(...){Colors.RESET}")
     else:
         print(f"{Colors.GREEN}🤖 Agent:{Colors.RESET} {content}")
 
@@ -165,6 +206,8 @@ async def chat_loop(client: AgentChatClient, session_id: str):
 
         try:
             await client.send_message(session_id, user_input)
+            # Increment count for user message
+            last_message_count += 1
         except httpx.HTTPStatusError as e:
             print(f"Error sending message: {e.response.status_code}")
             if e.response.status_code == 400:
@@ -172,37 +215,18 @@ async def chat_loop(client: AgentChatClient, session_id: str):
                 print(f"  Detail: {error_detail}")
             continue
 
-        final_status = await client.poll_until_active(session_id)
+        # Stream messages in real-time while polling status
+        final_status, last_message_count = await client.poll_and_stream(
+            session_id, last_message_count
+        )
 
         if final_status == "timeout":
-            print("Response timeout. Try again later.")
+            print(f"{Colors.YELLOW}Response timeout. Try again later.{Colors.RESET}")
             continue
 
         if final_status == "archived":
-            print("Session has been archived. Please start a new session.")
+            print(f"{Colors.YELLOW}Session has been archived. Please start a new session.{Colors.RESET}")
             break
-
-        try:
-            messages_data = await client.get_messages(session_id)
-            messages = messages_data.get("messages", [])
-            new_count = messages_data.get("total_count", 0)
-
-            if new_count > last_message_count:
-                # Extract only new assistant messages
-                new_messages = [
-                    m for m in messages[last_message_count:]
-                    if m.get("role") == "assistant"
-                ]
-
-                print()  # Empty line before messages
-                for msg in new_messages:
-                    print_message(msg)
-                print()  # Empty line after messages
-
-            last_message_count = new_count
-
-        except Exception as e:
-            print(f"Error getting response: {e}")
 
 
 async def main():

@@ -2,7 +2,7 @@
 """
 Reset Sessions Script
 
-Deletes all AgentSession and Message documents.
+Deletes all AgentSession, Message, and SubAgentTrace documents.
 Use with caution - this is irreversible!
 
 Usage:
@@ -27,19 +27,22 @@ async def main():
         # Count documents
         session_count = await db["AgentSession"].count_documents({})
         message_count = await db["Message"].count_documents({})
+        trace_count = await db["SubAgentTrace"].count_documents({})
 
-        print(f"Found {session_count} sessions and {message_count} messages")
+        print(f"Found {session_count} sessions, {message_count} messages, {trace_count} traces")
 
-        if session_count == 0 and message_count == 0:
+        if session_count == 0 and message_count == 0 and trace_count == 0:
             print("Nothing to delete.")
             return
 
         # Delete
         session_result = await db["AgentSession"].delete_many({})
         message_result = await db["Message"].delete_many({})
+        trace_result = await db["SubAgentTrace"].delete_many({})
 
         print(f"Deleted {session_result.deleted_count} sessions")
         print(f"Deleted {message_result.deleted_count} messages")
+        print(f"Deleted {trace_result.deleted_count} traces")
         print("Reset complete.")
 
     finally:

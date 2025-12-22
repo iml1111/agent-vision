@@ -104,3 +104,19 @@ class MongoSubAgentTraceRepository(SubAgentTraceRepository):
         """Delete all traces for a session"""
         result = await self._adapter.delete_many({"session_id": session_id})
         return result.deleted_count
+
+    async def update_parent_message_id(
+        self,
+        trace_id: str,
+        parent_message_id: str
+    ) -> bool:
+        """Update parent_message_id for a trace."""
+        try:
+            result = await self._adapter.update_one(
+                {"_id": ObjectId(trace_id)},
+                {"$set": {"parent_message_id": parent_message_id}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Failed to update parent_message_id for trace_id '{trace_id}': {e}")
+            return False

@@ -109,12 +109,20 @@ class SessionStatusResponse(BaseModel):
     }}
 
 
+class TraceEventItem(BaseModel):
+    """Sub-agent trace event (tool call)"""
+    type: str  # "text" | "tool_use"
+    tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
+
+
 class MessageItem(BaseModel):
     """Individual message item"""
     id: str
     role: str
     content: str
     metadata: Optional[Dict[str, Any]] = None
+    traces: Optional[List[TraceEventItem]] = None  # Sub-agent tool calls
     created_at: datetime
 
 

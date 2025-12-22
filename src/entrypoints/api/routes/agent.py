@@ -8,6 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from adapters.aws.sqs_producer import SQSProducerAdapter
+from adapters.mongodb.collections.subagent_trace_adapter import SubAgentTraceAdapter
+from adapters.repositories.mongodb.subagent_trace import MongoSubAgentTraceRepository
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
@@ -19,6 +21,7 @@ from entrypoints.api.schemas.agent import (
     MessagesResponse,
     SessionCreateResponse,
     SessionStatusResponse,
+    TraceEventItem,
 )
 from entrypoints.api.dependencies.services import (
     get_session_service,
@@ -105,6 +108,7 @@ async def send_message(
 )
 async def get_messages(
     session_id: str,
+    request: Request,
     limit: Optional[int] = Query(None, ge=1, le=100),
     offset: int = Query(0, ge=0),
     service: SessionManagementService = Depends(get_session_service)
@@ -117,16 +121,40 @@ async def get_messages(
             offset=offset
         )
 
-        items = [
-            MessageItem(
+        # Create trace repository for subagent trace lookup
+        trace_repo = MongoSubAgentTraceRepository(
+            SubAgentTraceAdapter(request.app.state.db_client.db)
+        )
+
+        items = []
+        for msg in messages:
+            traces = None
+
+            # For subagent_call messages, fetch trace events
+            if msg.metadata and msg.metadata.get("event_type") == "subagent_call":
+                tool_call = msg.metadata.get("tool_call", {})
+                parent_msg_id = tool_call.get("id")
+                if parent_msg_id:
+                    trace = await trace_repo.get_by_parent_message_id(parent_msg_id)
+                    if trace:
+                        traces = [
+                            TraceEventItem(
+                                type=event.get("type", "unknown"),
+                                tool_name=event.get("tool_name"),
+                                tool_input=event.get("tool_input")
+                            )
+                            for event in (trace.events or [])
+                            if event.get("type") == "tool_use"
+                        ]
+
+            items.append(MessageItem(
                 id=msg.id,
                 role=msg.role.value,
                 content=msg.content,
                 metadata=msg.metadata,
+                traces=traces,
                 created_at=msg.created_at
-            )
-            for msg in messages
-        ]
+            ))
 
         return MessagesResponse(
             session_id=session_id,

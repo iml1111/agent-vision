@@ -110,9 +110,9 @@ Dockerfile               # Python 3.12-slim, API/Worker 컨테이너
 docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
-├── agent_chat.py        # POC CLI for API testing (색상 출력, 3초 polling)
+├── agent_chat.py        # POC CLI for API testing (실시간 스트리밍, 1.5초 polling)
 ├── archive_session.py   # Archive session + SQS enqueue
-├── reset_sessions.py    # Delete all AgentSession and Message documents
+├── reset_sessions.py    # Delete all AgentSession, Message, SubAgentTrace documents
 └── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
 ```
 
@@ -713,25 +713,27 @@ async for event in supervisor.stream_query(user_message.content):
 
 ### POC CLI (scripts/agent_chat.py)
 
-API 테스트용 대화형 CLI (ANSI 색상 출력):
+API 테스트용 대화형 CLI (ANSI 색상 출력, 실시간 스트리밍):
 
 ```bash
 python scripts/agent_chat.py
 ```
 
-**기능**: 자동 세션 생성 → 대화 루프 (3초 polling) → Ctrl+C 종료
+**기능**: 자동 세션 생성 → 대화 루프 (1.5초 polling, 실시간 메시지 출력) → Ctrl+C 종료
 
 **출력 형식**:
 - 🧑 You: Cyan + Bold (사용자)
 - 🤖 Agent: Green (에이전트)
 - 🔧 [subagent]: Dim (서브에이전트 호출)
+- 📊 tool_name(...): Dim (서브에이전트 도구 호출)
 
 ### Reset Sessions (scripts/reset_sessions.py)
 
-모든 세션/메시지 초기화:
+모든 세션/메시지/트레이스 초기화:
 
 ```bash
 python scripts/reset_sessions.py
+# Deletes: AgentSession, Message, SubAgentTrace collections
 ```
 
 ---
@@ -918,16 +920,26 @@ class SubAgentExecutionResult:
     error: Optional[str] = None
 ```
 
-### Trace Flow
+### Trace Flow (trace_id_setter 패턴)
+
+SDK 타이밍 이슈로 인해 trace 저장 시 parent_message_id를 나중에 업데이트:
 
 ```
-Supervisor TOOL_USE (ask_slack_agent)
-       ↓ parent_message_id 캡처 (tool_call.id)
 SubAgent.execute(task)
        ↓ events 수집 (TEXT, TOOL_USE)
 SubAgentExecutionResult 반환
        ↓
-_save_trace() → SubAgentTraceEntity 생성 → MongoDB 저장
+_save_trace() → parent_message_id=None으로 저장 → trace_id 반환
+       ↓ trace_id_setter(trace_id) 호출
+SupervisorAgentClient.stream_query()
+       ↓ TOOL_USE event 수신 시 tool_call.id 획득
+trace_repo.update_parent_message_id(trace_id, tool_call.id)
+```
+
+**Repository 메서드**:
+```python
+# SubAgentTraceRepository
+async def update_parent_message_id(trace_id, parent_message_id) -> bool
 ```
 
 ### MongoDB Index
@@ -935,4 +947,16 @@ _save_trace() → SubAgentTraceEntity 생성 → MongoDB 저장
 ```javascript
 db.SubAgentTrace.createIndex({ "session_id": 1, "created_at": 1 })
 db.SubAgentTrace.createIndex({ "parent_message_id": 1 })
+```
+
+### API Trace 조회
+
+GET /sessions/{id}/messages 응답에 subagent_call 메시지의 traces 포함:
+
+```python
+# TraceEventItem schema
+class TraceEventItem(BaseModel):
+    type: str  # "tool_use"
+    tool_name: Optional[str]
+    tool_input: Optional[Dict]
 ```

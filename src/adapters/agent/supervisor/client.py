@@ -85,7 +85,7 @@ class SupervisorAgentClient:
         # Store trace context
         self._trace_repo = trace_repo
         self._session_id = session_id
-        self._current_parent_message_id: Optional[str] = None
+        self._last_trace_id: Optional[str] = None
 
         # Create sub-agents with their dependencies
         self._subagents: Dict[str, Any] = {
@@ -118,7 +118,7 @@ class SupervisorAgentClient:
             self._subagents,
             trace_repo=trace_repo,
             session_id=session_id,
-            parent_message_id_getter=lambda: self._current_parent_message_id,
+            trace_id_setter=lambda tid: setattr(self, '_last_trace_id', tid),
         )
 
         # Create MCP server with sub-agent tools
@@ -235,9 +235,18 @@ class SupervisorAgentClient:
         async for message in self.receive_response():
             event = self._parse_message_to_event(message)
             if event:
-                # Track parent message ID for sub-agent trace association
+                # Update trace with correct parent_message_id when TOOL_USE event is received
+                # SDK executes tool BEFORE yielding this event, so trace was saved with None
                 if event.type == AgentMessageType.TOOL_USE and event.tool_call:
-                    self._current_parent_message_id = event.tool_call.id
+                    if self._last_trace_id and self._trace_repo:
+                        await self._trace_repo.update_parent_message_id(
+                            self._last_trace_id,
+                            event.tool_call.id
+                        )
+                        logger.debug(
+                            f"Updated trace {self._last_trace_id} with parent_message_id {event.tool_call.id}"
+                        )
+                        self._last_trace_id = None  # Reset for next tool
                 yield event
 
         # Completion event

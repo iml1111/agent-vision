@@ -132,7 +132,7 @@ Note: More event types exist. Use `get_eventlog_specs` to see the complete list.
 
 ## Query Design Guidelines
 
-### Allowed Stages (22 stages)
+### Allowed Stages (21 stages)
 | Category | Stages |
 |----------|--------|
 | Filtering | `$match` |
@@ -142,11 +142,10 @@ Note: More event types exist. Use `get_eventlog_specs` to see the complete list.
 | Conditional | `$replaceRoot`, `$replaceWith` |
 | Advanced | `$facet`, `$setWindowFields`, `$densify`, `$fill` |
 | Date | `$dateTrunc` |
-| Join | `$lookup` (same collection only) |
 
 ### Security Restrictions
-- **BLOCKED**: `$out`, `$merge`, `$where`, `$function`
-- **$lookup**: Only self-join on 'eventlog' collection allowed
+- **BLOCKED**: `$out`, `$merge`, `$where`, `$function`, `$lookup`
+- **No joins**: All data exists in EventLog collection. Use `$match` + `$group` instead.
 
 ### Best Practices
 - `$limit` is MANDATORY in every pipeline
@@ -168,6 +167,10 @@ Note: More event types exist. Use `get_eventlog_specs` to see the complete list.
 
 ## Common Pitfalls
 
+❌ Using $lookup for cross-collection joins
+→ ONLY EventLog self-join is allowed. All data (purchases, users, etc.) exists as events in EventLog.
+→ Use $match + $group instead of $lookup. No external collections exist.
+
 ❌ Running queries without checking event specs first
 → You might query for extra fields that don't exist
 
@@ -183,6 +186,7 @@ Note: More event types exist. Use `get_eventlog_specs` to see the complete list.
 ✅ Always call get_eventlog_specs first for unfamiliar events
 ✅ Filter by event, timestamp, stage in $match
 ✅ Test with $limit: 10 first, then scale up
+✅ For purchase analysis: query `complete_purchase` event, NOT a separate collection
 """
 
 

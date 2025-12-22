@@ -103,3 +103,24 @@ class SubAgentTraceRepository(ABC):
             Number of deleted documents
         """
         pass
+
+    @abstractmethod
+    async def update_parent_message_id(
+        self,
+        trace_id: str,
+        parent_message_id: str
+    ) -> bool:
+        """
+        Update parent_message_id for a trace.
+
+        Used to fix the timing issue where trace is saved before
+        the SDK yields the TOOL_USE event with the correct ID.
+
+        Args:
+            trace_id: Trace ID to update
+            parent_message_id: Correct parent message ID from TOOL_USE event
+
+        Returns:
+            True if updated, False if not found
+        """
+        pass

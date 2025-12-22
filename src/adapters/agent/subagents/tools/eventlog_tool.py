@@ -14,7 +14,7 @@ from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 
 logger = get_logger(__name__)
 
-# Whitelist of allowed aggregation stages (22 stages)
+# Whitelist of allowed aggregation stages (21 stages)
 ALLOWED_STAGES: Set[str] = {
     # Filtering
     "$match",
@@ -30,16 +30,11 @@ ALLOWED_STAGES: Set[str] = {
     "$facet", "$setWindowFields", "$densify", "$fill",
     # Date
     "$dateTrunc",
-    # Join (same collection only)
-    "$lookup",
+    # Note: $lookup is intentionally excluded to prevent cross-collection join attempts
 }
 
 # Blocked stages for security
 BLOCKED_STAGES: Set[str] = {"$out", "$merge", "$where", "$function"}
-
-# Collection name for $lookup validation
-EVENTLOG_COLLECTION = "EventLog"
-
 
 def _validate_pipeline(pipeline: List[Dict[str, Any]]) -> tuple[bool, str]:
     """
@@ -76,14 +71,6 @@ def _validate_pipeline(pipeline: List[Dict[str, Any]]) -> tuple[bool, str]:
         # Check $limit presence
         if operator == "$limit":
             has_limit = True
-
-        # Validate $lookup - must reference same collection only
-        if operator == "$lookup":
-            lookup_config = stage["$lookup"]
-            if isinstance(lookup_config, dict):
-                from_collection = lookup_config.get("from")
-                if from_collection and from_collection != EVENTLOG_COLLECTION:
-                    return False, f"$lookup.from must reference '{EVENTLOG_COLLECTION}' collection only (cross-collection joins not allowed)"
 
     # Enforce $limit requirement
     if not has_limit:
@@ -145,7 +132,7 @@ RUN_EVENTLOG_AGGREGATION_DESCRIPTION = """Execute MongoDB aggregation pipeline o
 }
 ```
 
-## Allowed Aggregation Stages (22 stages)
+## Allowed Aggregation Stages (21 stages)
 - Filtering: $match
 - Projection: $project, $addFields, $set, $unset, $unwind
 - Grouping: $group, $count, $sortByCount, $bucket, $bucketAuto
@@ -153,12 +140,11 @@ RUN_EVENTLOG_AGGREGATION_DESCRIPTION = """Execute MongoDB aggregation pipeline o
 - Conditional: $replaceRoot, $replaceWith
 - Advanced: $facet, $setWindowFields, $densify, $fill
 - Date: $dateTrunc
-- Join: $lookup (same 'eventlog' collection only)
 
 ## NOT ALLOWED (Security)
 - $out, $merge (write operations)
 - $where, $function (server-side JavaScript)
-- Cross-collection $lookup
+- $lookup (joins not supported)
 
 ## IMPORTANT
 - $limit stage is MANDATORY in every pipeline
@@ -194,6 +180,17 @@ def create_eventlog_tools(eventlog_adapter: EventLogAdapter) -> List[Callable[..
             Aggregation results or error
         """
         pipeline = args.get("pipeline", [])
+
+        # Handle string input (LLM sometimes sends JSON string)
+        if isinstance(pipeline, str):
+            try:
+                pipeline = json.loads(pipeline)
+            except json.JSONDecodeError:
+                logger.warning("Pipeline is invalid JSON string")
+                return {
+                    "content": [{"type": "text", "text": "Pipeline validation error: Invalid JSON string"}],
+                    "is_error": True
+                }
 
         # Validate pipeline
         is_valid, error_msg = _validate_pipeline(pipeline)
