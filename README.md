@@ -76,15 +76,6 @@ python scripts/agent_chat.py
 python scripts/archive_session.py <SESSION_ID>
 ```
 
-**출력 예시:**
-```
-Session archived successfully: 507f1f77bcf86cd799439011
-  Previous status: active
-  New status: archived
-```
-
-**Note:** 향후 Growth Memory로 대화 내용 마이그레이션 기능 추가 예정
-
 ## Project Structure
 
 ```
@@ -187,28 +178,3 @@ Slack 채널 및 Notion 리소스 접근 제어를 위한 설정 파일입니다
 ```
 
 > **Note**: `src/allowlist.json`은 `.gitignore`에 포함되어 있습니다. `src/allowlist.example.json`을 참고하세요.
-
-## Development
-
-### Adding a New Entity
-
-1. `domain/entities/xxx.py` - Entity with `create()` factory
-2. `domain/ports/xxx.py` - Repository ABC
-3. `adapters/mongodb/collections/xxx_adapter.py` - Collection adapter
-4. `adapters/repositories/mongodb/xxx.py` - Repository impl
-
-### Adding a New Agent Tool
-
-1. `adapters/agent/tools/xxx_tool.py` - @tool decorator
-2. `adapters/agent/mcp_server.py` - MCP server 등록
-3. `adapters/agent/tools/__init__.py` - GROWTH_TOOLS 추가
-
-### Adding a New API Endpoint
-
-1. `entrypoints/api/schemas/xxx.py` - Schemas
-2. `entrypoints/api/routes/xxx.py` - Route handlers
-3. `entrypoints/api/routes/__init__.py` - Router 등록
-
-## License
-
-MIT License
