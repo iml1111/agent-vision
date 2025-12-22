@@ -105,7 +105,6 @@ src/
 │   │   └── tasks/
 │   │       ├── agent_tasks.py   # @task process_agent_response
 │   │       └── memory_tasks.py  # @task archive_session_to_memory
-│   └── cli/             # CLI Jobs
 └── __about__.py
 
 scripts/
@@ -304,11 +303,6 @@ async def archive_session_to_memory(data: Dict[str, Any]) -> None:
 ### Worker (SQS Consumer)
 ```bash
 ./void run worker
-```
-
-### CLI (Click)
-```bash
-./void run job <JOB_NAME>
 ```
 
 ---
