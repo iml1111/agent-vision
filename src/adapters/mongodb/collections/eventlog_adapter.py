@@ -14,7 +14,7 @@ class EventLogAdapter(BaseMongoAdapter):
     (funnel analysis, retention analysis, segment analysis).
     """
 
-    collection_name = "eventlog"
+    collection_name = "EventLog"
 
     def __init__(self, db, session: Optional[AsyncIOMotorClientSession] = None):
         """

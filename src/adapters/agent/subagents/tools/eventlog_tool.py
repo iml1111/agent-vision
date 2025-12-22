@@ -38,7 +38,7 @@ ALLOWED_STAGES: Set[str] = {
 BLOCKED_STAGES: Set[str] = {"$out", "$merge", "$where", "$function"}
 
 # Collection name for $lookup validation
-EVENTLOG_COLLECTION = "eventlog"
+EVENTLOG_COLLECTION = "EventLog"
 
 
 def _validate_pipeline(pipeline: List[Dict[str, Any]]) -> tuple[bool, str]:
