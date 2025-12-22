@@ -3,17 +3,17 @@
 Agent Chat CLI - POC for testing Agent API
 
 Interactive CLI for testing the Agent API endpoints.
-Supports session creation, message sending with polling, and conversation history.
+Automatically creates a new session and starts the conversation.
 
 Usage:
-    python scripts/agent_chat.py [--base-url http://localhost:8000] [--session-id <id>]
+    python scripts/agent_chat.py
 """
-import argparse
 import asyncio
 import sys
-from typing import Optional
 
 import httpx
+
+BASE_URL = "http://localhost:8000"
 
 
 class AgentChatClient:
@@ -103,62 +103,13 @@ class AgentChatClient:
         return "timeout"
 
 
-def print_header(base_url: str):
+def print_header():
     """Print CLI header"""
     print("=" * 50)
     print("  Agent Chat CLI - POC")
     print("=" * 50)
-    print(f"Base URL: {base_url}")
+    print(f"Base URL: {BASE_URL}")
     print()
-
-
-async def select_session(client: AgentChatClient, session_id: Optional[str]) -> str:
-    """
-    Select or create a session.
-
-    Args:
-        client: API client
-        session_id: Pre-specified session ID (from args)
-
-    Returns:
-        Session ID to use
-    """
-    if session_id:
-        print(f"Using existing session: {session_id}")
-        return session_id
-
-    print("Select session:")
-    print("[1] Create new session")
-    print("[2] Enter existing session ID")
-
-    while True:
-        choice = input("Choice (1/2): ").strip()
-
-        if choice == "1":
-            print("Creating new session...")
-            result = await client.create_session()
-            new_session_id = result["session_id"]
-            print(f"Session created: {new_session_id}")
-            return new_session_id
-
-        elif choice == "2":
-            existing_id = input("Enter session ID: ").strip()
-            if existing_id:
-                # Validate session exists
-                try:
-                    await client.get_status(existing_id)
-                    print(f"Session found: {existing_id}")
-                    return existing_id
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 404:
-                        print("Session not found. Try again.")
-                    else:
-                        print(f"Error: {e}")
-            else:
-                print("Invalid session ID. Try again.")
-
-        else:
-            print("Invalid choice. Enter 1 or 2.")
 
 
 async def chat_loop(client: AgentChatClient, session_id: str):
@@ -280,37 +231,22 @@ async def show_history(client: AgentChatClient, session_id: str):
 
 async def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(
-        description="Agent Chat CLI - POC for testing Agent API"
-    )
-    parser.add_argument(
-        "--base-url",
-        default="http://localhost:8000",
-        help="API base URL (default: http://localhost:8000)"
-    )
-    parser.add_argument(
-        "--session-id",
-        default=None,
-        help="Resume existing session by ID"
-    )
+    print_header()
 
-    args = parser.parse_args()
-
-    # Print header
-    print_header(args.base_url)
-
-    # Create client
-    client = AgentChatClient(args.base_url)
+    client = AgentChatClient(BASE_URL)
 
     try:
-        # Select or create session
-        session_id = await select_session(client, args.session_id)
+        # Create new session
+        print("Creating new session...")
+        result = await client.create_session()
+        session_id = result["session_id"]
+        print(f"Session created: {session_id}")
 
         # Run chat loop
         await chat_loop(client, session_id)
 
     except httpx.ConnectError:
-        print(f"Error: Cannot connect to {args.base_url}")
+        print(f"Error: Cannot connect to {BASE_URL}")
         print("Make sure the API server is running.")
         sys.exit(1)
 

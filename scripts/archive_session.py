@@ -7,7 +7,6 @@ Enqueues memory extraction task to SQS for async processing.
 
 Usage:
     python scripts/archive_session.py <session_id>
-    python scripts/archive_session.py <session_id> --skip-memory  # Skip memory extraction
 """
 import argparse
 import asyncio
@@ -30,26 +29,17 @@ async def main():
         "session_id",
         help="Session ID to archive"
     )
-    parser.add_argument(
-        "--skip-memory",
-        action="store_true",
-        help="Skip enqueueing memory extraction task"
-    )
     args = parser.parse_args()
 
     # Initialize
     config = Config()
     db_client = MongoDBClient(config.MONGODB_URI, config.MONGODB_NAME)
-
-    # Initialize SQS producer if memory extraction is enabled
-    sqs_producer = None
-    if not args.skip_memory:
-        sqs_producer = SQSProducerAdapter(
-            queue_url=config.sqs_queue_url,
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            region_name=config.aws_region
-        )
+    sqs_producer = SQSProducerAdapter(
+        queue_url=config.sqs_queue_url,
+        aws_access_key_id=config.aws_access_key_id,
+        aws_secret_access_key=config.aws_secret_access_key,
+        region_name=config.aws_region
+    )
 
     try:
         adapter = AgentSessionAdapter(db_client.database)
@@ -75,14 +65,11 @@ async def main():
         print(f"  New status: archived")
 
         # Enqueue memory extraction task
-        if sqs_producer:
-            sqs_producer.enqueue_task(
-                task_type="archive_session_to_memory",
-                data={"session_id": args.session_id}
-            )
-            print(f"  Memory extraction task enqueued")
-        else:
-            print(f"  Memory extraction skipped (--skip-memory)")
+        sqs_producer.enqueue_task(
+            task_type="archive_session_to_memory",
+            data={"session_id": args.session_id}
+        )
+        print(f"  Memory extraction task enqueued")
 
     finally:
         db_client.close()

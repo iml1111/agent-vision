@@ -24,23 +24,11 @@ AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Claude Agent
 ### Option 1: Docker (Recommended)
 
 ```bash
-# 1. Clone repository
-git clone <your-repo-url> agent-vision
-cd agent-vision
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env and fill in your API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-
-# 3. Run with Docker Compose
+# Run with Docker Compose
 docker-compose up --build
 
-# API will be available at http://localhost:8000
-# Both API and Worker start automatically
-
-# 4. Test with Agent Chat CLI (in a new terminal)
+# Test with Agent Chat CLI (in a new terminal)
 python scripts/agent_chat.py
-# Creates a new session and starts interactive chat with the agent
 ```
 
 ### Option 2: Local Development
@@ -74,18 +62,11 @@ vi src/allowlist.json
 API 테스트를 위한 대화형 CLI:
 
 ```bash
-# 새 세션으로 시작
 python scripts/agent_chat.py
-
-# 기존 세션 이어서
-python scripts/agent_chat.py --session-id <SESSION_ID>
-
-# 다른 서버로 연결
-python scripts/agent_chat.py --base-url http://localhost:8080
 ```
 
 **기능:**
-- 세션 생성/선택 → 대화 루프 (1초 polling) → `history` 조회 → `exit` 종료
+- 자동 세션 생성 → 대화 루프 (1초 polling) → `history` 조회 → `exit` 종료
 
 ### Archive Session
 

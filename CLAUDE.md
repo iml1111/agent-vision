@@ -111,7 +111,7 @@ docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
 ├── agent_chat.py        # POC CLI for API testing
-├── archive_session.py   # Archive session + SQS enqueue (--skip-memory 옵션)
+├── archive_session.py   # Archive session + SQS enqueue
 └── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
 ```
 
@@ -715,17 +715,10 @@ async for event in supervisor.stream_query(user_message.content):
 API 테스트용 대화형 CLI:
 
 ```bash
-# 새 세션으로 시작
 python scripts/agent_chat.py
-
-# 기존 세션 이어서
-python scripts/agent_chat.py --session-id <id>
-
-# 다른 서버로 연결
-python scripts/agent_chat.py --base-url http://localhost:8080
 ```
 
-**기능**: 세션 생성/선택 → 대화 루프 (1초 polling) → history 조회
+**기능**: 자동 세션 생성 → 대화 루프 (1초 polling) → history 조회
 
 ---
 
@@ -805,11 +798,7 @@ class GrowthMemoryService:
 ### Usage
 
 ```bash
-# 수동 아카이브 (메모리 추출 포함)
 python scripts/archive_session.py <session_id>
-
-# 수동 아카이브 (메모리 추출 스킵)
-python scripts/archive_session.py <session_id> --skip-memory
 ```
 
 ### GrowthMemory Tools
