@@ -146,6 +146,17 @@ RUN_EVENTLOG_AGGREGATION_DESCRIPTION = """Execute MongoDB aggregation pipeline o
 - $where, $function (server-side JavaScript)
 - $lookup (joins not supported)
 
+## Date Operators (Valid in Expressions)
+- $toDate - Convert value to Date
+- $dateFromString - Parse string to Date
+- $dateToString - Format Date to string
+- $dateToParts - Split date into components (year, month, day, etc.)
+- $dateFromParts - Build Date from components
+- $year, $month, $dayOfMonth, $hour, $minute, $second - Extract date parts
+- $dateAdd, $dateSubtract, $dateDiff - Date arithmetic
+
+WARNING: `$date` is NOT a valid operator. Use $toDate or $dateFromString instead.
+
 ## IMPORTANT
 - $limit stage is MANDATORY in every pipeline
 - All dates should be ISO format strings or Date objects"""
