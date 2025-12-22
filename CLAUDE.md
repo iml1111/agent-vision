@@ -94,18 +94,20 @@ src/
 │   ├── openai/          # OpenAI embedding client (text-embedding-3-small)
 │   ├── external/        # Slack, Notion API clients
 │   └── uow/             # Unit of Work implementation
-├── entrypoints/
-│   ├── api/             # FastAPI
-│   │   ├── app.py           # Lifespan, middleware, routes
-│   │   ├── routes/agent.py  # Agent session endpoints
-│   │   └── schemas/agent.py # Request/Response schemas
-│   ├── worker/          # SQS Worker
-│   │   ├── app.py           # Worker entry point
-│   │   ├── dependencies.py  # Worker dependencies (db, sqs_producer, trace_repo 등)
-│   │   └── tasks/
-│   │       ├── agent_tasks.py   # @task process_agent_response
-│   │       └── memory_tasks.py  # @task archive_session_to_memory
-└── __about__.py
+└── entrypoints/
+    ├── api/             # FastAPI
+    │   ├── app.py           # Lifespan, middleware, routes
+    │   ├── routes/agent.py  # Agent session endpoints
+    │   └── schemas/agent.py # Request/Response schemas
+    └── worker/          # SQS Worker
+        ├── app.py           # Worker entry point
+        ├── dependencies.py  # Worker dependencies
+        └── tasks/
+            ├── agent_tasks.py   # @task process_agent_response
+            └── memory_tasks.py  # @task archive_session_to_memory
+
+Dockerfile               # Python 3.12-slim, API/Worker 컨테이너
+docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
 ├── agent_chat.py        # POC CLI for API testing
@@ -295,14 +297,18 @@ async def archive_session_to_memory(data: Dict[str, Any]) -> None:
 
 ## Entrypoints
 
-### API (FastAPI)
+### Option 1: Docker (Recommended)
 ```bash
-./void run api  # uvicorn with --reload
+cp .env.example .env  # Configure API keys
+docker-compose up --build
+# API: http://localhost:8000, Worker starts automatically
+# Test: python scripts/agent_chat.py
 ```
 
-### Worker (SQS Consumer)
+### Option 2: Local Development
 ```bash
-./void run worker
+./void run api      # FastAPI with --reload
+./void run worker   # SQS Consumer
 ```
 
 ---

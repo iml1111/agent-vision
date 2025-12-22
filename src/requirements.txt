@@ -15,9 +15,6 @@ botocore
 # HTTP Client
 httpx
 
-# CLI
-click
-
 # Development
 python-dotenv
 

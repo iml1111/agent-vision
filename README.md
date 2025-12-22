@@ -21,41 +21,50 @@ AI 기반 Growth Hacking 에이전트 백엔드 시스템입니다. Claude Agent
 
 ## Quick Start
 
-### 1. Clone and Setup
+### Option 1: Docker (Recommended)
 
 ```bash
+# 1. Clone repository
+git clone <your-repo-url> agent-vision
+cd agent-vision
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env and fill in your API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+
+# 3. Run with Docker Compose
+docker-compose up --build
+
+# API will be available at http://localhost:8000
+# Both API and Worker start automatically
+
+# 4. Test with Agent Chat CLI (in a new terminal)
+python scripts/agent_chat.py
+# Creates a new session and starts interactive chat with the agent
+```
+
+### Option 2: Local Development
+
+```bash
+# 1. Clone and setup
 git clone <your-repo-url> agent-vision
 cd agent-vision
 
 python -m venv venv
 source venv/bin/activate
-
 pip install -r src/requirements.txt
-```
 
-### 2. Configure Environment
-
-```bash
-# 환경변수 설정
+# 2. Configure environment
 cp .env.example .env
 vi .env
 
 # Allowlist 설정 (Slack/Notion 리소스 접근 제어)
 cp src/allowlist.example.json src/allowlist.json
 vi src/allowlist.json
-```
 
-### 3. Run the Application
-
-```bash
-# API Server (development)
-./void run api
-
-# SQS Worker
-./void run worker
-
-# CLI Job
-./void run job <JOB_NAME>
+# 3. Run (in separate terminals)
+./void run api      # API Server
+./void run worker   # SQS Worker
 ```
 
 ## Scripts
@@ -122,8 +131,7 @@ src/
 │   └── uow/             # Unit of Work
 ├── entrypoints/
 │   ├── api/             # FastAPI
-│   ├── worker/          # SQS Worker
-│   └── cli/             # CLI Jobs
+│   └── worker/          # SQS Worker
 └── __about__.py
 
 scripts/
