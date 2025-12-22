@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from adapters.aws.sqs_producer import SQSProducerAdapter
-from adapters.mongodb.collections.subagent_trace_adapter import SubAgentTraceAdapter
-from adapters.repositories.mongodb.subagent_trace import MongoSubAgentTraceRepository
+from adapters.mongodb.collections.message_adapter import MessageAdapter
+from adapters.repositories.mongodb.message import MongoMessageRepository
 from domain.exceptions import (
     AgentSessionNotFoundError,
     InvalidSessionStateError,
@@ -121,30 +121,32 @@ async def get_messages(
             offset=offset
         )
 
-        # Create trace repository for subagent trace lookup
-        trace_repo = MongoSubAgentTraceRepository(
-            SubAgentTraceAdapter(request.app.state.db_client.db)
+        # Create message repository for sub-agent event lookup
+        message_repo = MongoMessageRepository(
+            MessageAdapter(request.app.state.db_client.db)
         )
 
         items = []
         for msg in messages:
             traces = None
 
-            # For subagent_call messages, fetch trace events
+            # For subagent_call messages, fetch sub-agent events from Messages
             if msg.metadata and msg.metadata.get("event_type") == "subagent_call":
                 tool_call = msg.metadata.get("tool_call", {})
                 parent_msg_id = tool_call.get("id")
                 if parent_msg_id:
-                    trace = await trace_repo.get_by_parent_message_id(parent_msg_id)
-                    if trace:
+                    subagent_messages = await message_repo.get_by_parent_message_id(
+                        parent_msg_id
+                    )
+                    if subagent_messages:
                         traces = [
                             TraceEventItem(
-                                type=event.get("type", "unknown"),
-                                tool_name=event.get("tool_name"),
-                                tool_input=event.get("tool_input")
+                                type=m.metadata.get("event_type", "unknown") if m.metadata else "unknown",
+                                tool_name=m.metadata.get("tool_name") if m.metadata else None,
+                                tool_input=m.metadata.get("tool_input") if m.metadata else None
                             )
-                            for event in (trace.events or [])
-                            if event.get("type") == "tool_use"
+                            for m in subagent_messages
+                            if m.metadata and m.metadata.get("event_type") == "tool_use"
                         ]
 
             items.append(MessageItem(

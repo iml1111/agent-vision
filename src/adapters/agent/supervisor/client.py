@@ -5,7 +5,7 @@ High-level wrapper for the Growth Hacking Supervisor agent.
 Coordinates sub-agents to analyze growth problems.
 """
 from types import TracebackType
-from typing import Any, AsyncIterator, Dict, List, Optional, Type
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 
 from claude_agent_sdk import (
     ClaudeSDKClient,
@@ -22,9 +22,11 @@ from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 from adapters.repositories.mongodb.message import MongoMessageRepository
-from adapters.repositories.mongodb.subagent_trace import MongoSubAgentTraceRepository
 from config import Config
+from domain.entities.message import MessageEntity
 from domain.value_objects import AgentMessageType, ToolCallVO, AgentStreamEvent
+from domain.value_objects.agent_enums import MessageRole
+from domain.value_objects.agent_types import SubAgentExecutionResult
 
 from adapters.agent.subagents import (
     DataAnalysisAgent,
@@ -36,6 +38,14 @@ from .options import create_supervisor_options
 from .tools import create_subagent_tools
 
 logger = get_logger(__name__)
+
+# Mapping from agent name to MessageRole
+AGENT_NAME_TO_ROLE: Dict[str, MessageRole] = {
+    "slack": MessageRole.SUBAGENT_SLACK,
+    "product": MessageRole.SUBAGENT_PRODUCT,
+    "data": MessageRole.SUBAGENT_DATA,
+    "memory": MessageRole.SUBAGENT_MEMORY,
+}
 
 
 class SupervisorAgentClient:
@@ -63,7 +73,6 @@ class SupervisorAgentClient:
         message_repo: MongoMessageRepository,
         model: str = "claude-opus-4-5",
         resume_session_id: Optional[str] = None,
-        trace_repo: Optional[MongoSubAgentTraceRepository] = None,
         session_id: Optional[str] = None,
     ) -> None:
         """
@@ -76,17 +85,16 @@ class SupervisorAgentClient:
             config: Application config for allowlist access
             memory_repo: GrowthMemory repository for Memory agent
             embedding_client: OpenAI client for query embedding
-            message_repo: Message repository for session retrieval
+            message_repo: Message repository for saving sub-agent events
             model: Claude model to use (default: claude-opus-4-5)
             resume_session_id: Optional SDK session ID to resume
-            trace_repo: Optional repository for sub-agent trace storage
-            session_id: Optional session ID for trace association
+            session_id: Session ID for message association
         """
-        # Store trace context
-        self._trace_repo = trace_repo
+        # Store context for saving sub-agent events
+        self._message_repo = message_repo
         self._session_id = session_id
-        # FIFO queue for trace IDs (supports multiple tool calls per turn)
-        self._pending_trace_ids: List[str] = []
+        # FIFO queue for pending sub-agent results (agent_name, result)
+        self._pending_results: List[Tuple[str, SubAgentExecutionResult]] = []
 
         # Create sub-agents with their dependencies
         self._subagents: Dict[str, Any] = {
@@ -114,12 +122,11 @@ class SupervisorAgentClient:
             ),
         }
 
-        # Create tools that wrap sub-agent execution (with trace support)
+        # Create tools that wrap sub-agent execution
+        # Events are collected via callback, saved later when parent_message_id is known
         tools = create_subagent_tools(
             self._subagents,
-            trace_repo=trace_repo,
-            session_id=session_id,
-            trace_id_setter=lambda tid: self._pending_trace_ids.append(tid),
+            event_collector=lambda name, result: self._pending_results.append((name, result)),
         )
 
         # Create MCP server with sub-agent tools
@@ -221,6 +228,71 @@ class SupervisorAgentClient:
 
         return None
 
+    async def _save_subagent_events(
+        self,
+        agent_name: str,
+        parent_message_id: str,
+        result: SubAgentExecutionResult
+    ) -> None:
+        """
+        Save sub-agent execution events as individual Message documents.
+
+        Args:
+            agent_name: Name of the sub-agent (slack, product, data, memory)
+            parent_message_id: The tool_call.id of the subagent_call message
+            result: SubAgentExecutionResult containing events
+        """
+        if not self._message_repo or not self._session_id:
+            logger.warning("Cannot save sub-agent events: message_repo or session_id not set")
+            return
+
+        role = AGENT_NAME_TO_ROLE.get(agent_name)
+        if not role:
+            logger.error(f"Unknown agent name: {agent_name}")
+            return
+
+        for seq, event in enumerate(result.events, 1):
+            event_type = event.get("type", "unknown")
+
+            if event_type == "text":
+                msg = MessageEntity.create(
+                    session_id=self._session_id,
+                    role=role,
+                    content=event.get("content", ""),
+                    metadata={
+                        "event_type": "text",
+                        "parent_message_id": parent_message_id,
+                        "sequence": seq,
+                    }
+                )
+            elif event_type == "tool_use":
+                tool_name = event.get("tool_name", "unknown")
+                msg = MessageEntity.create(
+                    session_id=self._session_id,
+                    role=role,
+                    content=f"Tool: {tool_name}",
+                    metadata={
+                        "event_type": "tool_use",
+                        "parent_message_id": parent_message_id,
+                        "sequence": seq,
+                        "tool_name": tool_name,
+                        "tool_input": event.get("tool_input"),
+                    }
+                )
+            else:
+                # Skip unknown event types
+                continue
+
+            try:
+                await self._message_repo.create(msg)
+            except Exception as e:
+                logger.error(f"Failed to save sub-agent event: {e}")
+
+        logger.debug(
+            f"Saved {len(result.events)} events from {agent_name} agent "
+            f"(parent_message_id={parent_message_id})"
+        )
+
     async def stream_query(self, prompt: str) -> AsyncIterator[AgentStreamEvent]:
         """
         Execute query in streaming mode.
@@ -236,18 +308,16 @@ class SupervisorAgentClient:
         async for message in self.receive_response():
             event = self._parse_message_to_event(message)
             if event:
-                # Update trace with correct parent_message_id when TOOL_USE event is received
-                # SDK executes tools BEFORE yielding events, so traces were saved with None
-                # Use FIFO queue to match traces with events in order
+                # When TOOL_USE event is received, save the pending sub-agent events
+                # SDK executes tools BEFORE yielding events, so results are in queue
+                # Use FIFO order to match results with events
                 if event.type == AgentMessageType.TOOL_USE and event.tool_call:
-                    if self._pending_trace_ids and self._trace_repo:
-                        trace_id = self._pending_trace_ids.pop(0)  # FIFO order
-                        await self._trace_repo.update_parent_message_id(
-                            trace_id,
-                            event.tool_call.id
-                        )
-                        logger.debug(
-                            f"Updated trace {trace_id} with parent_message_id {event.tool_call.id}"
+                    if self._pending_results:
+                        agent_name, result = self._pending_results.pop(0)  # FIFO
+                        await self._save_subagent_events(
+                            agent_name,
+                            event.tool_call.id,
+                            result
                         )
                 yield event
 

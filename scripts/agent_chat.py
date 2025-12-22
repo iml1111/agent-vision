@@ -107,10 +107,10 @@ class AgentChatClient:
                 # Clear spinner line
                 print("\r" + " " * 40 + "\r", end="", flush=True)
 
-                # Get only new assistant messages
+                # Get new messages (assistant, sub-agents, and system)
                 new_messages = [
                     m for m in messages[current_count:]
-                    if m.get("role") == "assistant"
+                    if m.get("role") != "user"
                 ]
 
                 if first_output and new_messages:
@@ -156,20 +156,36 @@ def print_header():
 
 def print_message(msg: dict) -> None:
     """Print a message with appropriate formatting based on type."""
-    metadata = msg.get("metadata", {})
+    role = msg.get("role", "")
+    metadata = msg.get("metadata", {}) or {}
     event_type = metadata.get("event_type", "text")
     content = msg.get("content", "(no content)")
 
-    if event_type == "subagent_call":
+    # Handle sub-agent event messages (new flattened structure)
+    if role.startswith("subagent_"):
+        agent_name = role.replace("subagent_", "")
+        if event_type == "tool_use":
+            tool_name = metadata.get("tool_name", "unknown")
+            print(f"{Colors.DIM}      📊 [{agent_name}] {tool_name}(...){Colors.RESET}")
+        else:
+            # Text event from sub-agent - show abbreviated content
+            short_content = content[:80] + "..." if len(content) > 80 else content
+            print(f"{Colors.DIM}      💬 [{agent_name}] {short_content}{Colors.RESET}")
+    # Handle supervisor's subagent_call event
+    elif event_type == "subagent_call":
         subagent = metadata.get("subagent", "unknown")
         task = metadata.get("task", content)
         print(f"{Colors.DIM}   🔧 [{subagent}] {task}{Colors.RESET}")
 
-        # Print trace events (tool calls)
+        # Print trace events (tool calls) - kept for backward compatibility
         traces = msg.get("traces") or []
         for event in traces:
             tool_name = event.get("tool_name", "unknown")
             print(f"{Colors.DIM}      📊 {tool_name}(...){Colors.RESET}")
+    # Handle system messages
+    elif role == "system":
+        print(f"{Colors.YELLOW}⚠️ System:{Colors.RESET} {content}")
+    # Handle assistant text messages
     else:
         print(f"{Colors.GREEN}🤖 Agent:{Colors.RESET} {content}")
 

@@ -4,13 +4,11 @@ Sub-Agent Tools for Supervisor
 Provides tools that allow the Supervisor to delegate tasks to specialized sub-agents.
 Each tool wraps a sub-agent execution and returns results to the Supervisor.
 """
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from claude_agent_sdk import tool
 
 from adapters.agent.subagents.base import BaseSubAgent
-from domain.entities.subagent_trace import SubAgentTraceEntity
-from domain.ports.subagent_trace import SubAgentTraceRepository
 from domain.value_objects.agent_types import SubAgentExecutionResult
 from logging_config import get_logger
 
@@ -99,11 +97,14 @@ Example: ask_memory_agent(task="Past retention analyses - especially onboarding 
 """
 
 
+# Type alias for event collector callback
+# Callback receives (agent_name, result) tuple and stores it for later Message creation
+EventCollector = Callable[[str, SubAgentExecutionResult], None]
+
+
 def create_subagent_tools(
     subagents: Dict[str, BaseSubAgent],
-    trace_repo: Optional[SubAgentTraceRepository] = None,
-    session_id: Optional[str] = None,
-    trace_id_setter: Optional[Callable[[str], None]] = None,
+    event_collector: Optional[EventCollector] = None,
 ) -> List[Callable[..., Any]]:
     """
     Create tools that allow Supervisor to call sub-agents.
@@ -111,52 +112,18 @@ def create_subagent_tools(
     Args:
         subagents: Dictionary mapping agent keys to agent instances
             Expected keys: "slack", "product", "data", "memory"
-        trace_repo: Repository for saving sub-agent traces (optional)
-        session_id: Parent session ID for trace association (optional)
-        trace_id_setter: Callable to set trace ID for later parent_message_id update (optional)
+        event_collector: Callback to collect sub-agent execution results.
+            Results will be saved as Messages later when parent_message_id is known.
 
     Returns:
         List of @tool decorated functions for the Supervisor
     """
 
-    async def _save_trace(
-        agent_name: str,
-        task: str,
-        result: SubAgentExecutionResult,
-        model: Optional[str] = None
-    ) -> Optional[str]:
-        """Save sub-agent execution trace to database.
-
-        Note: parent_message_id is saved as None initially.
-        It will be updated later when the TOOL_USE event is received
-        with the correct tool_call.id.
-
-        Returns:
-            trace_id if saved successfully, None otherwise
-        """
-        if not trace_repo or not session_id:
-            return None
-
-        try:
-            trace = SubAgentTraceEntity.create(
-                session_id=session_id,
-                parent_message_id=None,  # Will be updated later
-                agent_name=agent_name,
-                task=task,
-                events=result.events,
-                result=result.final_response,
-                started_at=result.started_at,
-                completed_at=result.completed_at,
-                duration_ms=result.duration_ms,
-                model=model,
-                error=result.error
-            )
-            trace_id = await trace_repo.create(trace)
-            logger.debug(f"Saved trace for {agent_name} agent (trace_id={trace_id})")
-            return trace_id
-        except Exception as e:
-            logger.error(f"Failed to save trace for {agent_name}: {e}")
-            return None
+    def _collect_events(agent_name: str, result: SubAgentExecutionResult) -> None:
+        """Collect sub-agent execution result for later Message creation."""
+        if event_collector:
+            event_collector(agent_name, result)
+            logger.debug(f"Collected {len(result.events)} events from {agent_name} agent")
 
     @tool(
         "ask_slack_agent",
@@ -180,9 +147,7 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            trace_id = await _save_trace("slack", task, result, agent._model)
-            if trace_id and trace_id_setter:
-                trace_id_setter(trace_id)
+            _collect_events("slack", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Slack agent execution failed: {e}")
@@ -213,9 +178,7 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            trace_id = await _save_trace("product", task, result, agent._model)
-            if trace_id and trace_id_setter:
-                trace_id_setter(trace_id)
+            _collect_events("product", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Product domain agent execution failed: {e}")
@@ -246,9 +209,7 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            trace_id = await _save_trace("data", task, result, agent._model)
-            if trace_id and trace_id_setter:
-                trace_id_setter(trace_id)
+            _collect_events("data", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Data analysis agent execution failed: {e}")
@@ -279,9 +240,7 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            trace_id = await _save_trace("memory", task, result, agent._model)
-            if trace_id and trace_id_setter:
-                trace_id_setter(trace_id)
+            _collect_events("memory", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Memory agent execution failed: {e}")

@@ -14,11 +14,9 @@ from adapters.mongodb.client import MongoDBClient
 from adapters.mongodb.collections.eventlog_adapter import EventLogAdapter
 from adapters.mongodb.collections.growth_memory_adapter import GrowthMemoryAdapter
 from adapters.mongodb.collections.message_adapter import MessageAdapter
-from adapters.mongodb.collections.subagent_trace_adapter import SubAgentTraceAdapter
 from adapters.openai.embedding_client import OpenAIEmbeddingClient
 from adapters.repositories.mongodb.growth_memory import MongoGrowthMemoryRepository
 from adapters.repositories.mongodb.message import MongoMessageRepository
-from adapters.repositories.mongodb.subagent_trace import MongoSubAgentTraceRepository
 from adapters.uow.mongo_unit_of_work import MongoUnitOfWork
 from domain.ports.unit_of_work import AbstractUnitOfWork
 
@@ -62,7 +60,6 @@ class WorkerDependencies:
     _eventlog_adapter: Optional[EventLogAdapter] = None
     _memory_repo: Optional[MongoGrowthMemoryRepository] = None
     _message_repo: Optional[MongoMessageRepository] = None
-    _trace_repo: Optional[MongoSubAgentTraceRepository] = None
     _slack_client: Optional[SlackClient] = None
     _notion_client: Optional[NotionClient] = None
 
@@ -99,9 +96,6 @@ class WorkerDependencies:
         )
         cls._message_repo = MongoMessageRepository(
             MessageAdapter(cls._db_client.db)
-        )
-        cls._trace_repo = MongoSubAgentTraceRepository(
-            SubAgentTraceAdapter(cls._db_client.db)
         )
 
         if config.slack_bot_token:
@@ -177,13 +171,6 @@ class WorkerDependencies:
         return cls._message_repo
 
     @classmethod
-    def get_trace_repo(cls) -> MongoSubAgentTraceRepository:
-        """Get SubAgentTrace repository for sub-agent execution tracing"""
-        if cls._trace_repo is None:
-            raise RuntimeError("Dependencies not initialized. Call initialize() first.")
-        return cls._trace_repo
-
-    @classmethod
     def get_uow_factory(cls) -> Callable[[], AbstractUnitOfWork]:
         """
         Get UnitOfWork factory
@@ -214,6 +201,5 @@ class WorkerDependencies:
         cls._eventlog_adapter = None
         cls._memory_repo = None
         cls._message_repo = None
-        cls._trace_repo = None
         cls._slack_client = None
         cls._notion_client = None

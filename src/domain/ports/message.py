@@ -84,3 +84,21 @@ class MessageRepository(ABC):
             Number of deleted messages
         """
         pass
+
+    @abstractmethod
+    async def get_by_parent_message_id(
+        self,
+        parent_message_id: str,
+        limit: int = 100
+    ) -> List[MessageEntity]:
+        """
+        Get sub-agent event messages by parent message ID
+
+        Args:
+            parent_message_id: The tool_call.id of the subagent_call message
+            limit: Maximum number of messages to return
+
+        Returns:
+            List of MessageEntity (sub-agent events) ordered by sequence
+        """
+        pass

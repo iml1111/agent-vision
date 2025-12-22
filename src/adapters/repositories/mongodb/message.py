@@ -66,3 +66,18 @@ class MongoMessageRepository(MessageRepository):
         """Delete all messages for a session"""
         result = await self._adapter.delete_many({"session_id": session_id})
         return result.deleted_count
+
+    async def get_by_parent_message_id(
+        self,
+        parent_message_id: str,
+        limit: int = 100
+    ) -> List[MessageEntity]:
+        """Get sub-agent event messages by parent message ID"""
+        projection = BaseMongoAdapter.entity_projection(MessageEntity)
+        docs = await self._adapter.find_many(
+            {"metadata.parent_message_id": parent_message_id},
+            projection=projection,
+            limit=limit,
+            sort=[("metadata.sequence", 1)]  # Order by sequence
+        )
+        return [MessageEntity.from_dict(doc) for doc in docs]

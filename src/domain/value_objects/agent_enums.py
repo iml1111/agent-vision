@@ -14,3 +14,8 @@ class MessageRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
+    # Sub-agent roles (for flattened sub-agent events)
+    SUBAGENT_SLACK = "subagent_slack"
+    SUBAGENT_PRODUCT = "subagent_product"
+    SUBAGENT_DATA = "subagent_data"
+    SUBAGENT_MEMORY = "subagent_memory"
