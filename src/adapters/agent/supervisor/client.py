@@ -85,7 +85,8 @@ class SupervisorAgentClient:
         # Store trace context
         self._trace_repo = trace_repo
         self._session_id = session_id
-        self._last_trace_id: Optional[str] = None
+        # FIFO queue for trace IDs (supports multiple tool calls per turn)
+        self._pending_trace_ids: List[str] = []
 
         # Create sub-agents with their dependencies
         self._subagents: Dict[str, Any] = {
@@ -118,7 +119,7 @@ class SupervisorAgentClient:
             self._subagents,
             trace_repo=trace_repo,
             session_id=session_id,
-            trace_id_setter=lambda tid: setattr(self, '_last_trace_id', tid),
+            trace_id_setter=lambda tid: self._pending_trace_ids.append(tid),
         )
 
         # Create MCP server with sub-agent tools
@@ -236,17 +237,18 @@ class SupervisorAgentClient:
             event = self._parse_message_to_event(message)
             if event:
                 # Update trace with correct parent_message_id when TOOL_USE event is received
-                # SDK executes tool BEFORE yielding this event, so trace was saved with None
+                # SDK executes tools BEFORE yielding events, so traces were saved with None
+                # Use FIFO queue to match traces with events in order
                 if event.type == AgentMessageType.TOOL_USE and event.tool_call:
-                    if self._last_trace_id and self._trace_repo:
+                    if self._pending_trace_ids and self._trace_repo:
+                        trace_id = self._pending_trace_ids.pop(0)  # FIFO order
                         await self._trace_repo.update_parent_message_id(
-                            self._last_trace_id,
+                            trace_id,
                             event.tool_call.id
                         )
                         logger.debug(
-                            f"Updated trace {self._last_trace_id} with parent_message_id {event.tool_call.id}"
+                            f"Updated trace {trace_id} with parent_message_id {event.tool_call.id}"
                         )
-                        self._last_trace_id = None  # Reset for next tool
                 yield event
 
         # Completion event
