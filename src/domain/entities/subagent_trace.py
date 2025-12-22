@@ -33,11 +33,11 @@ class SubAgentTraceEntity(BaseEntity):
 
     # Core identifiers (required)
     session_id: str
-    parent_message_id: str
     agent_name: str
     task: str
     created_at: datetime
     id: Optional[str] = None
+    parent_message_id: Optional[str] = None  # Set later via update_parent_message_id
 
     # Execution details (optional)
     events: Optional[List[Dict[str, Any]]] = None
@@ -52,9 +52,9 @@ class SubAgentTraceEntity(BaseEntity):
     def create(
         cls,
         session_id: str,
-        parent_message_id: str,
         agent_name: str,
         task: str,
+        parent_message_id: Optional[str] = None,
         events: Optional[List[Dict[str, Any]]] = None,
         result: Optional[str] = None,
         started_at: Optional[datetime] = None,
@@ -68,9 +68,9 @@ class SubAgentTraceEntity(BaseEntity):
 
         Args:
             session_id: Parent AgentSession ID
-            parent_message_id: ID of triggering Supervisor TOOL_USE message
             agent_name: Sub-agent identifier
             task: Task description
+            parent_message_id: ID of triggering Supervisor TOOL_USE message (set later)
             events: List of internal events
             result: Final response
             started_at: Execution start time
@@ -84,10 +84,10 @@ class SubAgentTraceEntity(BaseEntity):
         """
         return cls(
             session_id=session_id,
-            parent_message_id=parent_message_id,
             agent_name=agent_name,
             task=task,
             created_at=datetime.now(timezone.utc),
+            parent_message_id=parent_message_id,
             events=events,
             result=result,
             started_at=started_at,
@@ -107,8 +107,8 @@ class SubAgentTraceEntity(BaseEntity):
             data = {**data}
             data["id"] = str(data.pop("_id"))
 
-        # Validate required fields
-        required_fields = ["session_id", "parent_message_id", "agent_name", "task", "created_at"]
+        # Validate required fields (parent_message_id is optional - set later via update)
+        required_fields = ["session_id", "agent_name", "task", "created_at"]
         for field in required_fields:
             if field not in data:
                 raise ValueError(f"Field '{field}' is required")
@@ -134,8 +134,10 @@ class SubAgentTraceEntity(BaseEntity):
         if not isinstance(self.session_id, str) or not self.session_id.strip():
             raise ValueError("Field 'session_id' must be a non-empty string")
 
-        if not isinstance(self.parent_message_id, str) or not self.parent_message_id.strip():
-            raise ValueError("Field 'parent_message_id' must be a non-empty string")
+        # parent_message_id is optional (set later via update_parent_message_id)
+        if self.parent_message_id is not None:
+            if not isinstance(self.parent_message_id, str) or not self.parent_message_id.strip():
+                raise ValueError("Field 'parent_message_id' must be a non-empty string or None")
 
         if not isinstance(self.agent_name, str) or not self.agent_name.strip():
             raise ValueError("Field 'agent_name' must be a non-empty string")
