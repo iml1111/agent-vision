@@ -34,8 +34,8 @@ Parameters:
 - task (required): What context you need. Include time hints if relevant (e.g., "recent", "around launch date").
 
 Examples:
-- call_slack(task="Recent team discussions and concerns about retention drop")
-- call_slack(task="Alternatives the team considered when deciding to redesign onboarding")
+- ask_slack_agent(task="Recent team discussions and concerns about retention drop")
+- ask_slack_agent(task="Alternatives the team considered when deciding to redesign onboarding")
 """
 
 PRODUCT_AGENT_DESCRIPTION = """Understand WHY data patterns appear through product context.
@@ -52,8 +52,8 @@ Parameters:
 - task (required): What product context you need. Be specific about the feature, timeline, or decision.
 
 Examples:
-- call_product(task="When was the new onboarding flow launched and what changed?")
-- call_product(task="Business background for the credit system redesign")
+- ask_product_agent(task="When was the new onboarding flow launched and what changed?")
+- ask_product_agent(task="Business background for the credit system redesign")
 """
 
 DATA_AGENT_DESCRIPTION = """Provide quantifiable evidence through EventLog data analysis.
@@ -78,9 +78,9 @@ Parameters:
 - task (required): What to analyze. Include time range and specific metrics.
 
 Examples:
-- call_data(task="D+7 retention trend over the last 30 days, weekly comparison")
-- call_data(task="Signup conversion rate by utm_source")
-- call_data(task="Onboarding funnel drop-off rates by step")
+- ask_data_agent(task="D+7 retention trend over the last 30 days, weekly comparison")
+- ask_data_agent(task="Signup conversion rate by utm_source")
+- ask_data_agent(task="Onboarding funnel drop-off rates by step")
 """
 
 MEMORY_AGENT_DESCRIPTION = """Search past Growth sessions for historical insights via RAG.
@@ -95,7 +95,7 @@ Returns structured insights per session:
 Parameters:
 - task (required): Describe the problem context. Include metric names or feature areas for better matches.
 
-Example: call_memory(task="Past retention analyses - especially onboarding funnel optimization cases")
+Example: ask_memory_agent(task="Past retention analyses - especially onboarding funnel optimization cases")
 """
 
 
@@ -148,13 +148,13 @@ def create_subagent_tools(
             logger.error(f"Failed to save trace for {agent_name}: {e}")
 
     @tool(
-        "call_slack",
+        "ask_slack_agent",
         SLACK_AGENT_DESCRIPTION,
         {
             "task": str,
         }
     )
-    async def call_slack(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def ask_slack_agent(args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Slack Agent to retrieve team communications."""
         task = args.get("task", "")
 
@@ -179,13 +179,13 @@ def create_subagent_tools(
             }
 
     @tool(
-        "call_product",
+        "ask_product_agent",
         PRODUCT_AGENT_DESCRIPTION,
         {
             "task": str,
         }
     )
-    async def call_product(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def ask_product_agent(args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Product Domain Agent to retrieve product knowledge."""
         task = args.get("task", "")
 
@@ -210,13 +210,13 @@ def create_subagent_tools(
             }
 
     @tool(
-        "call_data",
+        "ask_data_agent",
         DATA_AGENT_DESCRIPTION,
         {
             "task": str,
         }
     )
-    async def call_data(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def ask_data_agent(args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Data Analysis Agent to analyze EventLog data."""
         task = args.get("task", "")
 
@@ -241,13 +241,13 @@ def create_subagent_tools(
             }
 
     @tool(
-        "call_memory",
+        "ask_memory_agent",
         MEMORY_AGENT_DESCRIPTION,
         {
             "task": str,
         }
     )
-    async def call_memory(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def ask_memory_agent(args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Memory Agent to retrieve historical insights."""
         task = args.get("task", "")
 
@@ -271,16 +271,16 @@ def create_subagent_tools(
                 "is_error": True
             }
 
-    return [call_slack, call_product, call_data, call_memory]
+    return [ask_slack_agent, ask_product_agent, ask_data_agent, ask_memory_agent]
 
 
 # Tool names for allowed_tools configuration
 SUPERVISOR_TOOL_NAMES: List[str] = [
     # Custom sub-agent tools
-    "mcp__supervisor-tools__call_slack",
-    "mcp__supervisor-tools__call_product",
-    "mcp__supervisor-tools__call_data",
-    "mcp__supervisor-tools__call_memory",
+    "mcp__supervisor-tools__ask_slack_agent",
+    "mcp__supervisor-tools__ask_product_agent",
+    "mcp__supervisor-tools__ask_data_agent",
+    "mcp__supervisor-tools__ask_memory_agent",
     # Built-in tools
     "WebSearch",
     "WebFetch",

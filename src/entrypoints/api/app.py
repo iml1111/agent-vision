@@ -59,7 +59,6 @@ async def lifespan(app: FastAPI):
     logger.info(
         f"Allowlist initialized: "
         f"{len(config.slack_channels)} Slack channels, "
-        f"{len(config.notion_databases)} Notion databases, "
         f"{len(config.notion_pages)} Notion pages"
     )
 

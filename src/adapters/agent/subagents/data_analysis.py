@@ -244,7 +244,7 @@ class DataAnalysisAgent(BaseSubAgent):
             config=self._dependencies["config"],
         )
         # Filter to only include get_eventlog_specs
-        tools.extend([t for t in notion_tools if t.__name__ == "get_eventlog_specs"])
+        tools.extend([t for t in notion_tools if t.name == "get_eventlog_specs"])
 
         return tools
 

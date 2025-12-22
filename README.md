@@ -66,7 +66,7 @@ python scripts/agent_chat.py
 ```
 
 **기능:**
-- 자동 세션 생성 → 대화 루프 (1초 polling) → `history` 조회 → `exit` 종료
+- 자동 세션 생성 → 대화 루프 (1초 polling) → Ctrl+C 종료
 
 ### Archive Session
 
@@ -167,9 +167,6 @@ Slack 채널 및 Notion 리소스 접근 제어를 위한 설정 파일입니다
 {
   "slack_channels": [
     {"channel_id": "C0123456789", "channel_name": "growth-data", "description": "..."}
-  ],
-  "notion_databases": [
-    {"database_id": "abc123", "database_name": "Experiments", "description": "..."}
   ],
   "notion_pages": [
     {"page_id": "page123", "page_name": "Growth Playbook", "description": "..."}

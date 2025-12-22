@@ -100,7 +100,7 @@ class BaseSubAgent(ABC):
         )
 
         # Combine MCP tool names with built-in tools
-        allowed_tools = [f"mcp__{self.name}-tools__{tool.__name__}" for tool in tools]
+        allowed_tools = [f"mcp__{self.name}-tools__{tool.name}" for tool in tools]
         allowed_tools.extend(SUBAGENT_BUILTIN_TOOLS)
 
         return ClaudeAgentOptions(

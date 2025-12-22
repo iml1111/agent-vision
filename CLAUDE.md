@@ -67,7 +67,7 @@ src/
 │   │   │   ├── client.py        # SupervisorAgentClient
 │   │   │   ├── options.py       # Supervisor options + system prompt
 │   │   │   └── tools/
-│   │   │       └── subagent_tools.py  # call_slack, call_product, call_data, call_memory
+│   │   │       └── subagent_tools.py  # ask_slack_agent, ask_product_agent, ask_data_agent, ask_memory_agent
 │   │   └── subagents/       # Specialized Sub-Agents
 │   │       ├── base.py          # BaseSubAgent abstract class (+ built-in tools)
 │   │       ├── slack.py         # SlackAgent
@@ -110,8 +110,9 @@ Dockerfile               # Python 3.12-slim, API/Worker 컨테이너
 docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
-├── agent_chat.py        # POC CLI for API testing
+├── agent_chat.py        # POC CLI for API testing (색상 출력, 3초 polling)
 ├── archive_session.py   # Archive session + SQS enqueue
+├── reset_sessions.py    # Delete all AgentSession and Message documents
 └── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
 ```
 
@@ -417,7 +418,7 @@ SQS_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/xxx/queue.fifo
 ### New Sub-Agent
 1. `adapters/agent/subagents/xxx.py` - BaseSubAgent 상속, `create_tools()` 구현
 2. `adapters/agent/subagents/__init__.py` - export 추가
-3. `adapters/agent/supervisor/tools/subagent_tools.py` - `call_xxx` Tool 추가
+3. `adapters/agent/supervisor/tools/subagent_tools.py` - `ask_xxx_agent` Tool 추가
 4. `adapters/agent/supervisor/client.py` - sub-agent 인스턴스 생성
 
 ---
@@ -432,7 +433,7 @@ Growth Agent는 Supervisor가 전문화된 Sub-Agent들을 Tool로 호출하는 
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         Supervisor Agent                             │
 │  - Model: claude-opus-4-5                                           │
-│  - Tools: call_slack, call_product, call_data, call_memory          │
+│  - Tools: ask_slack_agent, ask_product_agent, ask_data_agent, ask_memory_agent │
 │  - 직접 외부 API 호출 없음, 서브에이전트 결과만 수신                 │
 │  - 메인 세션 히스토리 관리                                           │
 └─────────────────────────────┬───────────────────────────────────────┘
@@ -585,7 +586,7 @@ class BaseSubAgent(ABC):
 ├──────────────────────────────────────────────────────┤
 │  stream_query() → yields AgentStreamEvent            │
 │  - TEXT: Supervisor 텍스트 응답                      │
-│  - TOOL_USE: Sub-agent 호출 (call_slack 등)          │
+│  - TOOL_USE: Sub-agent 호출 (ask_slack_agent 등)     │
 │  - COMPLETE: 최종 완료 + claude_session_id           │
 └──────────────────────┬───────────────────────────────┘
                        │
@@ -593,10 +594,10 @@ class BaseSubAgent(ABC):
 ┌──────────────────────────────────────────────────────┐
 │           Supervisor MCP Server (Tools)              │
 ├──────────────────────────────────────────────────────┤
-│  call_slack:   SlackAgent.execute(task) 호출         │
-│  call_product: ProductDomainAgent.execute(task) 호출 │
-│  call_data:    DataAnalysisAgent.execute(task) 호출  │
-│  call_memory:  MemoryAgent.execute(task) 호출        │
+│  ask_slack_agent:   SlackAgent.execute(task) 호출    │
+│  ask_product_agent: ProductDomainAgent.execute(task) │
+│  ask_data_agent:    DataAnalysisAgent.execute(task)  │
+│  ask_memory_agent:  MemoryAgent.execute(task) 호출   │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -608,25 +609,25 @@ class BaseSubAgent(ABC):
            ▼
 [Supervisor] → 분석 계획 수립
            │
-           ├─ call_data("D+7 리텐션 추이 분석")
+           ├─ ask_data_agent("D+7 리텐션 추이 분석")
            │     └─ DataAnalysisAgent 실행
            │          └─ get_eventlog_specs(...)
            │          └─ run_eventlog_aggregation(...) x N
            │          └─ 쿼리 + 결과 반환
            │
-           ├─ call_memory("리텐션 관련 과거 분석 사례")
+           ├─ ask_memory_agent("리텐션 관련 과거 분석 사례")
            │     └─ MemoryAgent 실행
            │          └─ search_growth_memory(...)
            │          └─ get_session_messages(...)
            │          └─ 쿼리 + 인사이트 반환
            │
-           ├─ call_slack("리텐션 관련 팀 논의 검색")
+           ├─ ask_slack_agent("리텐션 관련 팀 논의 검색")
            │     └─ SlackAgent 실행 (자율 채널 선택)
            │          └─ list_slack_channels()
            │          └─ get_slack_messages(...)
            │          └─ 요약 반환
            │
-           └─ call_product("리텐션 관련 프로덕트 컨텍스트")
+           └─ ask_product_agent("리텐션 관련 프로덕트 컨텍스트")
                  └─ ProductDomainAgent 실행
                       └─ list_notion_pages()
                       └─ get_notion_page(...)
@@ -638,7 +639,7 @@ class BaseSubAgent(ABC):
            ▼
 [DB 저장] ← 메인 세션에만 저장
            - User message
-           - Supervisor의 Tool calls (call_data 등)
+           - Supervisor의 Tool calls (ask_data_agent 등)
            - Sub-agent 전체 결과
            - Supervisor의 최종 응답
 ```
@@ -712,13 +713,26 @@ async for event in supervisor.stream_query(user_message.content):
 
 ### POC CLI (scripts/agent_chat.py)
 
-API 테스트용 대화형 CLI:
+API 테스트용 대화형 CLI (ANSI 색상 출력):
 
 ```bash
 python scripts/agent_chat.py
 ```
 
-**기능**: 자동 세션 생성 → 대화 루프 (1초 polling) → history 조회
+**기능**: 자동 세션 생성 → 대화 루프 (3초 polling) → Ctrl+C 종료
+
+**출력 형식**:
+- 🧑 You: Cyan + Bold (사용자)
+- 🤖 Agent: Green (에이전트)
+- 🔧 [subagent]: Dim (서브에이전트 호출)
+
+### Reset Sessions (scripts/reset_sessions.py)
+
+모든 세션/메시지 초기화:
+
+```bash
+python scripts/reset_sessions.py
+```
 
 ---
 
@@ -907,7 +921,7 @@ class SubAgentExecutionResult:
 ### Trace Flow
 
 ```
-Supervisor TOOL_USE (call_slack)
+Supervisor TOOL_USE (ask_slack_agent)
        ↓ parent_message_id 캡처 (tool_call.id)
 SubAgent.execute(task)
        ↓ events 수집 (TEXT, TOOL_USE)

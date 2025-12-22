@@ -15,6 +15,15 @@ import httpx
 
 BASE_URL = "http://localhost:8000"
 
+# ANSI color codes
+class Colors:
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    DIM = "\033[2m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
 
 class AgentChatClient:
     """HTTP client for Agent API"""
@@ -62,8 +71,8 @@ class AgentChatClient:
     async def poll_until_active(
         self,
         session_id: str,
-        interval: float = 1.0,
-        max_attempts: int = 300
+        interval: float = 3.0,
+        max_attempts: int = 100
     ) -> str:
         """
         Poll status until session becomes active.
@@ -84,7 +93,6 @@ class AgentChatClient:
             status = status_data.get("status", "unknown")
 
             if status == "active":
-                # Clear spinner line
                 print("\r" + " " * 30 + "\r", end="", flush=True)
                 return status
 
@@ -92,7 +100,6 @@ class AgentChatClient:
                 print("\r" + " " * 30 + "\r", end="", flush=True)
                 return status
 
-            # Show spinner
             spin_char = spinner[attempt % len(spinner)]
             print(f"\r[Processing...] {spin_char}", end="", flush=True)
 
@@ -105,11 +112,25 @@ class AgentChatClient:
 
 def print_header():
     """Print CLI header"""
-    print("=" * 50)
-    print("  Agent Chat CLI - POC")
-    print("=" * 50)
-    print(f"Base URL: {BASE_URL}")
+    print(f"{Colors.CYAN}{'═' * 50}")
+    print(f"  🤖 Agent Chat CLI")
+    print(f"{'═' * 50}{Colors.RESET}")
+    print(f"{Colors.DIM}Base URL: {BASE_URL}{Colors.RESET}")
     print()
+
+
+def print_message(msg: dict) -> None:
+    """Print a message with appropriate formatting based on type."""
+    metadata = msg.get("metadata", {})
+    event_type = metadata.get("event_type", "text")
+    content = msg.get("content", "(no content)")
+
+    if event_type == "subagent_call":
+        subagent = metadata.get("subagent", "unknown")
+        task = metadata.get("task", content)
+        print(f"{Colors.DIM}   🔧 [{subagent}] {task}{Colors.RESET}")
+    else:
+        print(f"{Colors.GREEN}🤖 Agent:{Colors.RESET} {content}")
 
 
 async def chat_loop(client: AgentChatClient, session_id: str):
@@ -121,15 +142,11 @@ async def chat_loop(client: AgentChatClient, session_id: str):
         session_id: Active session ID
     """
     print()
-    print("Type 'exit' or 'quit' to end conversation.")
-    print("Type 'history' to show conversation history.")
-    print("-" * 50)
+    print(f"{Colors.DIM}{'─' * 50}{Colors.RESET}")
     print()
 
-    # Track message count to find new messages
     last_message_count = 0
 
-    # Get initial message count
     try:
         messages_data = await client.get_messages(session_id)
         last_message_count = messages_data.get("total_count", 0)
@@ -138,24 +155,14 @@ async def chat_loop(client: AgentChatClient, session_id: str):
 
     while True:
         try:
-            user_input = input("You: ").strip()
+            user_input = input(f"{Colors.CYAN}{Colors.BOLD}🧑 You:{Colors.RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
+            print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}")
             break
 
         if not user_input:
             continue
 
-        # Handle special commands
-        if user_input.lower() in ("exit", "quit"):
-            print("Goodbye!")
-            break
-
-        if user_input.lower() == "history":
-            await show_history(client, session_id)
-            continue
-
-        # Send message
         try:
             await client.send_message(session_id, user_input)
         except httpx.HTTPStatusError as e:
@@ -165,7 +172,6 @@ async def chat_loop(client: AgentChatClient, session_id: str):
                 print(f"  Detail: {error_detail}")
             continue
 
-        # Poll until active
         final_status = await client.poll_until_active(session_id)
 
         if final_status == "timeout":
@@ -176,57 +182,27 @@ async def chat_loop(client: AgentChatClient, session_id: str):
             print("Session has been archived. Please start a new session.")
             break
 
-        # Get and display new assistant message
         try:
             messages_data = await client.get_messages(session_id)
             messages = messages_data.get("messages", [])
             new_count = messages_data.get("total_count", 0)
 
-            # Find new assistant messages
             if new_count > last_message_count:
-                for msg in messages:
-                    if msg.get("role") == "assistant":
-                        # Check if this is a new message (simple heuristic: last one)
-                        pass
+                # Extract only new assistant messages
+                new_messages = [
+                    m for m in messages[last_message_count:]
+                    if m.get("role") == "assistant"
+                ]
 
-                # Get the last assistant message
-                assistant_messages = [m for m in messages if m.get("role") == "assistant"]
-                if assistant_messages:
-                    latest = assistant_messages[-1]
-                    print(f"\nAgent: {latest.get('content', '(no content)')}\n")
+                print()  # Empty line before messages
+                for msg in new_messages:
+                    print_message(msg)
+                print()  # Empty line after messages
 
             last_message_count = new_count
 
         except Exception as e:
             print(f"Error getting response: {e}")
-
-
-async def show_history(client: AgentChatClient, session_id: str):
-    """Show conversation history"""
-    print()
-    print("-" * 50)
-    print("Conversation History")
-    print("-" * 50)
-
-    try:
-        messages_data = await client.get_messages(session_id)
-        messages = messages_data.get("messages", [])
-
-        if not messages:
-            print("(no messages)")
-        else:
-            for msg in messages:
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                prefix = "You" if role == "user" else "Agent"
-                print(f"{prefix}: {content}")
-                print()
-
-    except Exception as e:
-        print(f"Error: {e}")
-
-    print("-" * 50)
-    print()
 
 
 async def main():
@@ -236,22 +212,20 @@ async def main():
     client = AgentChatClient(BASE_URL)
 
     try:
-        # Create new session
-        print("Creating new session...")
+        print(f"{Colors.DIM}Creating new session...{Colors.RESET}")
         result = await client.create_session()
         session_id = result["session_id"]
-        print(f"Session created: {session_id}")
+        print(f"{Colors.DIM}Session: {session_id}{Colors.RESET}")
 
-        # Run chat loop
         await chat_loop(client, session_id)
 
     except httpx.ConnectError:
-        print(f"Error: Cannot connect to {BASE_URL}")
-        print("Make sure the API server is running.")
+        print(f"{Colors.YELLOW}Error: Cannot connect to {BASE_URL}{Colors.RESET}")
+        print(f"{Colors.DIM}Make sure the API server is running.{Colors.RESET}")
         sys.exit(1)
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"{Colors.YELLOW}Error: {e}{Colors.RESET}")
         sys.exit(1)
 
     finally:
