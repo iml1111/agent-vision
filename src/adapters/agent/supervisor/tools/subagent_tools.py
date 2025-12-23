@@ -4,11 +4,14 @@ Sub-Agent Tools for Supervisor
 Provides tools that allow the Supervisor to delegate tasks to specialized sub-agents.
 Each tool wraps a sub-agent execution and returns results to the Supervisor.
 """
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from claude_agent_sdk import tool
 
 from adapters.agent.subagents.base import BaseSubAgent
+from adapters.repositories.mongodb.message import MongoMessageRepository
+from domain.entities.message import MessageEntity
+from domain.value_objects.agent_enums import MessageRole
 from domain.value_objects.agent_types import SubAgentExecutionResult
 from logging_config import get_logger
 
@@ -97,14 +100,19 @@ Example: ask_memory_agent(task="Past retention analyses - especially onboarding 
 """
 
 
-# Type alias for event collector callback
-# Callback receives (agent_name, result) tuple and stores it for later Message creation
-EventCollector = Callable[[str, SubAgentExecutionResult], None]
+# Mapping from agent name to MessageRole
+AGENT_NAME_TO_ROLE: Dict[str, MessageRole] = {
+    "slack": MessageRole.SUBAGENT_SLACK,
+    "product": MessageRole.SUBAGENT_PRODUCT,
+    "data": MessageRole.SUBAGENT_DATA,
+    "memory": MessageRole.SUBAGENT_MEMORY,
+}
 
 
 def create_subagent_tools(
     subagents: Dict[str, BaseSubAgent],
-    event_collector: Optional[EventCollector] = None,
+    message_repo: Optional[MongoMessageRepository] = None,
+    session_id: Optional[str] = None,
 ) -> List[Callable[..., Any]]:
     """
     Create tools that allow Supervisor to call sub-agents.
@@ -112,18 +120,69 @@ def create_subagent_tools(
     Args:
         subagents: Dictionary mapping agent keys to agent instances
             Expected keys: "slack", "product", "data", "memory"
-        event_collector: Callback to collect sub-agent execution results.
-            Results will be saved as Messages later when parent_message_id is known.
+        message_repo: Message repository for saving sub-agent events immediately
+        session_id: Session ID for message association
 
     Returns:
         List of @tool decorated functions for the Supervisor
     """
 
-    def _collect_events(agent_name: str, result: SubAgentExecutionResult) -> None:
-        """Collect sub-agent execution result for later Message creation."""
-        if event_collector:
-            event_collector(agent_name, result)
-            logger.debug(f"Collected {len(result.events)} events from {agent_name} agent")
+    async def _save_events(
+        agent_name: str,
+        tool_name: str,
+        result: SubAgentExecutionResult
+    ) -> None:
+        """Save sub-agent execution events immediately to Message collection."""
+        if not message_repo or not session_id:
+            logger.warning("Cannot save sub-agent events: message_repo or session_id not set")
+            return
+
+        role = AGENT_NAME_TO_ROLE.get(agent_name)
+        if not role:
+            logger.error(f"Unknown agent name: {agent_name}")
+            return
+
+        for seq, event in enumerate(result.events, 1):
+            event_type = event.get("type", "unknown")
+
+            if event_type == "text":
+                msg = MessageEntity.create(
+                    session_id=session_id,
+                    role=role,
+                    content=event.get("content", ""),
+                    metadata={
+                        "event_type": "text",
+                        "subagent_tool": tool_name,
+                        "sequence": seq,
+                    }
+                )
+            elif event_type == "tool_use":
+                tool_name_inner = event.get("tool_name", "unknown")
+                msg = MessageEntity.create(
+                    session_id=session_id,
+                    role=role,
+                    content=f"Tool: {tool_name_inner}",
+                    metadata={
+                        "event_type": "tool_use",
+                        "subagent_tool": tool_name,
+                        "sequence": seq,
+                        "tool_name": tool_name_inner,
+                        "tool_input": event.get("tool_input"),
+                    }
+                )
+            else:
+                # Skip unknown event types
+                continue
+
+            try:
+                await message_repo.create(msg)
+            except Exception as e:
+                logger.error(f"Failed to save sub-agent event: {e}")
+
+        logger.debug(
+            f"Saved {len(result.events)} events from {agent_name} agent "
+            f"(subagent_tool={tool_name})"
+        )
 
     @tool(
         "ask_slack_agent",
@@ -147,7 +206,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            _collect_events("slack", result)
+            # Save events immediately
+            await _save_events("slack", "ask_slack_agent", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Slack agent execution failed: {e}")
@@ -178,7 +238,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            _collect_events("product", result)
+            # Save events immediately
+            await _save_events("product", "ask_product_agent", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Product domain agent execution failed: {e}")
@@ -209,7 +270,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            _collect_events("data", result)
+            # Save events immediately
+            await _save_events("data", "ask_data_agent", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Data analysis agent execution failed: {e}")
@@ -240,7 +302,8 @@ def create_subagent_tools(
         try:
             async with agent:
                 result = await agent.execute(task)
-            _collect_events("memory", result)
+            # Save events immediately
+            await _save_events("memory", "ask_memory_agent", result)
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Memory agent execution failed: {e}")

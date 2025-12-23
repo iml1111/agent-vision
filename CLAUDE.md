@@ -48,7 +48,7 @@ src/
 │   │   └── growth_memory.py    # GrowthMemory entity (6개 요약 단위)
 │   ├── ports/           # Repository interfaces
 │   │   ├── agent_session.py
-│   │   ├── message.py          # get_by_parent_message_id 포함
+│   │   ├── message.py          # get_by_session_id, get_by_parent_message_id (레거시)
 │   │   └── growth_memory.py    # vector_search 포함
 │   ├── value_objects/
 │   │   ├── agent_enums.py      # SessionStatus, MessageRole (SUBAGENT_* roles 포함)
@@ -103,14 +103,16 @@ src/
             ├── agent_tasks.py   # @task process_agent_response
             └── memory_tasks.py  # @task archive_session_to_memory
 
-Dockerfile               # Python 3.12-slim, API/Worker 컨테이너
+Dockerfile               # Python 3.12-slim + Node.js (MCP 서버용)
 docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
 ├── agent_chat.py        # POC CLI for API testing (실시간 스트리밍, 1.5초 polling)
 ├── archive_session.py   # Archive session + SQS enqueue
 ├── reset_sessions.py    # Delete all AgentSession and Message documents
-└── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
+├── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
+├── debug_agent_flow.py  # Sub-agent 이벤트 저장 검증 스크립트
+└── query_messages.py    # 세션별 Message 조회 디버그 스크립트
 ```
 
 ---
@@ -525,20 +527,20 @@ SUBAGENT_BUILTIN_TOOLS = [
 
 ### External MCP Integration
 
-npx를 통해 외부 MCP 서버를 Supervisor와 모든 Sub-Agent에 통합:
+전역 설치된 MCP 서버를 Supervisor와 모든 Sub-Agent에 통합:
 
 ```python
 # supervisor/options.py, subagents/base.py
 mcp_servers={
     "internal-tools": internal_mcp_server,  # SDK MCP (인-프로세스)
-    "sequential-thinking": {                 # External MCP (npx)
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    "sequential-thinking": {                 # External MCP (전역 설치)
+        "command": "mcp-server-sequential-thinking",
+        "args": []
     }
 }
 ```
 
-**Requirements**: Node.js (npx 실행용)
+**Requirements**: Node.js + `npm install -g @modelcontextprotocol/server-sequential-thinking`
 
 ### BaseSubAgent Pattern
 
@@ -687,7 +689,7 @@ MessageEntity.create(
     content="...",
     metadata={
         "event_type": "text" | "tool_use",
-        "parent_message_id": "...",   # subagent_call 메시지의 tool_call.id
+        "subagent_tool": "ask_data_agent",  # 어떤 sub-agent tool에서 생성되었는지
         "sequence": 1,
         # tool_use인 경우:
         "tool_name": "run_eventlog_aggregation",
@@ -696,23 +698,25 @@ MessageEntity.create(
 )
 ```
 
-**FIFO Queue Pattern** (supervisor/client.py):
+**Immediate Saving Pattern** (supervisor/tools/subagent_tools.py):
 ```python
-# Sub-agent 실행 결과를 FIFO 큐에 수집
-self._pending_results: List[Tuple[str, SubAgentExecutionResult]] = []
+# Sub-agent 실행 완료 즉시 Message 컬렉션에 저장
 tools = create_subagent_tools(
     self._subagents,
-    event_collector=lambda name, result: self._pending_results.append((name, result)),
+    message_repo=message_repo,
+    session_id=session_id,
 )
 
-# TOOL_USE 이벤트 수신 시 큐에서 꺼내서 저장
-if event.type == AgentMessageType.TOOL_USE and event.tool_call:
-    if self._pending_results:
-        agent_name, result = self._pending_results.pop(0)  # FIFO
-        await self._save_subagent_events(agent_name, event.tool_call.id, result)
+# 각 ask_*_agent 함수 내부에서 즉시 저장
+async def ask_data_agent(args):
+    async with agent:
+        result = await agent.execute(task)
+    # 즉시 저장 - SDK 타이밍 이슈 해결
+    await _save_events("data", "ask_data_agent", result)
+    return {"content": [...]}
 ```
 
-**장점**: 단일 컬렉션으로 구조 단순화, 실시간 진행 상황 조회, CLI에서 모든 이벤트 출력 가능
+**장점**: 단일 컬렉션으로 구조 단순화, SDK 타이밍 이슈 해결, 실시간 진행 상황 조회
 
 ---
 

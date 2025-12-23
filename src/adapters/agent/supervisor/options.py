@@ -189,8 +189,8 @@ def create_supervisor_options(
         mcp_servers={
             "supervisor-tools": mcp_server,
             "sequential-thinking": {
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+                "command": "mcp-server-sequential-thinking",
+                "args": []
             }
         },
 

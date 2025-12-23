@@ -3,10 +3,15 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies + Node.js
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install MCP server globally
+RUN npm install -g @modelcontextprotocol/server-sequential-thinking
 
 # Copy requirements first for layer caching
 COPY src/requirements.txt .

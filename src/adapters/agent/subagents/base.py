@@ -107,8 +107,8 @@ class BaseSubAgent(ABC):
             mcp_servers={
                 f"{self.name}-tools": self._mcp_server,
                 "sequential-thinking": {
-                    "command": "npx",
-                    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+                    "command": "mcp-server-sequential-thinking",
+                    "args": []
                 }
             },
             allowed_tools=allowed_tools,
