@@ -15,12 +15,13 @@ import httpx
 
 BASE_URL = "http://localhost:8000"
 
-# ANSI color codes
+# ANSI color codes (Claude Code style)
 class Colors:
-    CYAN = "\033[96m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    DIM = "\033[2m"
+    CYAN = "\033[96m"      # User prompt
+    GREEN = "\033[92m"     # Success (✓)
+    YELLOW = "\033[93m"    # Warning
+    RED = "\033[91m"       # Error (✗)
+    BLUE = "\033[94m"      # Agent name
     BOLD = "\033[1m"
     RESET = "\033[0m"
 
@@ -72,7 +73,7 @@ class AgentChatClient:
         self,
         session_id: str,
         last_message_count: int,
-        interval: float = 1.5,
+        interval: float = 1.0,
         max_attempts: int = 200
     ) -> tuple[str, int]:
         """
@@ -136,7 +137,7 @@ class AgentChatClient:
 
             # Show spinner
             spin_char = spinner[attempt % len(spinner)]
-            print(f"\r{Colors.DIM}[Processing...] {spin_char}{Colors.RESET}", end="", flush=True)
+            print(f"\r{spin_char} Processing...", end="", flush=True)
 
             await asyncio.sleep(interval)
             attempt += 1
@@ -147,47 +148,65 @@ class AgentChatClient:
 
 def print_header():
     """Print CLI header"""
-    print(f"{Colors.CYAN}{'═' * 50}")
-    print(f"  🤖 Agent Chat CLI")
-    print(f"{'═' * 50}{Colors.RESET}")
-    print(f"{Colors.DIM}Base URL: {BASE_URL}{Colors.RESET}")
+    print(f"\n{Colors.BOLD}Agent Chat{Colors.RESET}")
+    print(f"─" * 40)
     print()
 
 
 def print_message(msg: dict) -> None:
-    """Print a message with appropriate formatting based on type."""
+    """Print a message with Claude Code style formatting."""
     role = msg.get("role", "")
     metadata = msg.get("metadata", {}) or {}
     event_type = metadata.get("event_type", "text")
-    content = msg.get("content", "(no content)")
+    content = msg.get("content", "")
 
-    # Handle sub-agent event messages (new flattened structure)
+    # Sub-agent event messages
     if role.startswith("subagent_"):
-        agent_name = role.replace("subagent_", "")
+        agent_name = role.replace("subagent_", "").capitalize()
+
         if event_type == "tool_use":
             tool_name = metadata.get("tool_name", "unknown")
-            print(f"{Colors.DIM}      📊 [{agent_name}] {tool_name}(...){Colors.RESET}")
-        else:
-            # Text event from sub-agent - show abbreviated content
-            short_content = content[:80] + "..." if len(content) > 80 else content
-            print(f"{Colors.DIM}      💬 [{agent_name}] {short_content}{Colors.RESET}")
-    # Handle supervisor's subagent_call event
-    elif event_type == "subagent_call":
-        subagent = metadata.get("subagent", "unknown")
-        task = metadata.get("task", content)
-        print(f"{Colors.DIM}   🔧 [{subagent}] {task}{Colors.RESET}")
+            # Extract short tool name (remove mcp__xxx__ prefix)
+            short_name = tool_name.split("__")[-1] if "__" in tool_name else tool_name
+            print(f"  {short_name}")
 
-        # Print trace events (tool calls) - kept for backward compatibility
-        traces = msg.get("traces") or []
-        for event in traces:
-            tool_name = event.get("tool_name", "unknown")
-            print(f"{Colors.DIM}      📊 {tool_name}(...){Colors.RESET}")
-    # Handle system messages
+        elif event_type == "tool_result":
+            tool_output = metadata.get("tool_output", "")
+            is_error = metadata.get("is_error", False)
+            # Create brief summary from output
+            output_str = str(tool_output)
+            if is_error:
+                print(f"  {Colors.RED}✗{Colors.RESET} error")
+            else:
+                # Extract meaningful summary (first line or count)
+                summary = output_str.split("\n")[0][:60]
+                if len(output_str) > 60:
+                    summary += "..."
+                print(f"  {Colors.GREEN}✓{Colors.RESET} {summary}")
+
+        else:
+            # Text from sub-agent - show with indentation
+            if content:
+                # Indent multi-line content
+                lines = content.split("\n")
+                for line in lines[:3]:  # Show first 3 lines
+                    print(f"  {line}")
+                if len(lines) > 3:
+                    print(f"  ...")
+
+    # Supervisor calling a sub-agent
+    elif event_type == "subagent_call":
+        subagent = metadata.get("subagent", "unknown").capitalize()
+        print(f"\n{Colors.BLUE}{Colors.BOLD}● {subagent}{Colors.RESET}")
+
+    # System messages
     elif role == "system":
-        print(f"{Colors.YELLOW}⚠️ System:{Colors.RESET} {content}")
-    # Handle assistant text messages
+        print(f"{Colors.YELLOW}! {content}{Colors.RESET}")
+
+    # Final assistant response (no decoration)
     else:
-        print(f"{Colors.GREEN}🤖 Agent:{Colors.RESET} {content}")
+        if content:
+            print(f"\n{content}")
 
 
 async def chat_loop(client: AgentChatClient, session_id: str):
@@ -198,9 +217,6 @@ async def chat_loop(client: AgentChatClient, session_id: str):
         client: API client
         session_id: Active session ID
     """
-    print()
-    print(f"{Colors.DIM}{'─' * 50}{Colors.RESET}")
-    print()
 
     last_message_count = 0
 
@@ -212,9 +228,9 @@ async def chat_loop(client: AgentChatClient, session_id: str):
 
     while True:
         try:
-            user_input = input(f"{Colors.CYAN}{Colors.BOLD}🧑 You:{Colors.RESET} ").strip()
+            user_input = input(f"{Colors.CYAN}>{Colors.RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
-            print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}")
+            print("\nGoodbye!")
             break
 
         if not user_input:
@@ -237,11 +253,11 @@ async def chat_loop(client: AgentChatClient, session_id: str):
         )
 
         if final_status == "timeout":
-            print(f"{Colors.YELLOW}Response timeout. Try again later.{Colors.RESET}")
+            print(f"{Colors.YELLOW}! Timeout{Colors.RESET}")
             continue
 
         if final_status == "archived":
-            print(f"{Colors.YELLOW}Session has been archived. Please start a new session.{Colors.RESET}")
+            print(f"{Colors.YELLOW}! Session archived{Colors.RESET}")
             break
 
 
@@ -252,20 +268,18 @@ async def main():
     client = AgentChatClient(BASE_URL)
 
     try:
-        print(f"{Colors.DIM}Creating new session...{Colors.RESET}")
         result = await client.create_session()
         session_id = result["session_id"]
-        print(f"{Colors.DIM}Session: {session_id}{Colors.RESET}")
 
         await chat_loop(client, session_id)
 
     except httpx.ConnectError:
-        print(f"{Colors.YELLOW}Error: Cannot connect to {BASE_URL}{Colors.RESET}")
-        print(f"{Colors.DIM}Make sure the API server is running.{Colors.RESET}")
+        print(f"{Colors.RED}✗{Colors.RESET} Cannot connect to {BASE_URL}")
+        print("  Make sure the API server is running.")
         sys.exit(1)
 
     except Exception as e:
-        print(f"{Colors.YELLOW}Error: {e}{Colors.RESET}")
+        print(f"{Colors.RED}✗{Colors.RESET} {e}")
         sys.exit(1)
 
     finally:

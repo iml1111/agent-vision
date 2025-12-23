@@ -7,14 +7,16 @@ Each sub-agent is a specialized, stateless agent that executes tasks delegated b
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
 
 from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
+    UserMessage,
     TextBlock,
     ToolUseBlock,
+    ToolResultBlock,
     create_sdk_mcp_server,
 )
 
@@ -136,7 +138,11 @@ class BaseSubAgent(ABC):
             await self._client.__aexit__(exc_type, exc_val, exc_tb)
             self._client = None
 
-    async def execute(self, task: str) -> SubAgentExecutionResult:
+    async def execute(
+        self,
+        task: str,
+        on_event: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> SubAgentExecutionResult:
         """
         Execute a task and return the result with trace data.
 
@@ -146,6 +152,8 @@ class BaseSubAgent(ABC):
         Args:
             task: The task description from the Supervisor.
                   Include specific requirements (e.g., summary vs raw content) in the task.
+            on_event: Optional async callback to receive events in real-time.
+                      Called with each event dict as it occurs during execution.
 
         Returns:
             SubAgentExecutionResult containing final response and all internal events
@@ -171,25 +179,56 @@ class BaseSubAgent(ABC):
                         sequence += 1
                         if isinstance(block, TextBlock):
                             response_parts.append(block.text)
-                            events.append({
+                            event = {
                                 "sequence": sequence,
                                 "type": "text",
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                                 "content": block.text
-                            })
+                            }
+                            events.append(event)
+                            if on_event:
+                                try:
+                                    await on_event(event)
+                                except Exception as e:
+                                    logger.warning(f"on_event callback failed: {e}")
                         elif isinstance(block, ToolUseBlock):
                             # Track tool usage for transparency
                             executed_queries.append({
                                 "tool": block.name,
                                 "input": block.input,
                             })
-                            events.append({
+                            event = {
                                 "sequence": sequence,
                                 "type": "tool_use",
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                                 "tool_name": block.name,
                                 "tool_input": block.input
-                            })
+                            }
+                            events.append(event)
+                            if on_event:
+                                try:
+                                    await on_event(event)
+                                except Exception as e:
+                                    logger.warning(f"on_event callback failed: {e}")
+                # UserMessage contains ToolResultBlock with tool execution results
+                elif isinstance(message, UserMessage):
+                    for block in message.content:
+                        if isinstance(block, ToolResultBlock):
+                            sequence += 1
+                            event = {
+                                "sequence": sequence,
+                                "type": "tool_result",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "tool_use_id": block.tool_use_id,
+                                "content": block.content,
+                                "is_error": block.is_error or False
+                            }
+                            events.append(event)
+                            if on_event:
+                                try:
+                                    await on_event(event)
+                                except Exception as e:
+                                    logger.warning(f"on_event callback failed: {e}")
 
             # Combine response with executed queries for transparency
             final_response = "\n".join(response_parts)

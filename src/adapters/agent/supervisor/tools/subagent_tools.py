@@ -12,7 +12,6 @@ from adapters.agent.subagents.base import BaseSubAgent
 from adapters.repositories.mongodb.message import MongoMessageRepository
 from domain.entities.message import MessageEntity
 from domain.value_objects.agent_enums import MessageRole
-from domain.value_objects.agent_types import SubAgentExecutionResult
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -127,14 +126,13 @@ def create_subagent_tools(
         List of @tool decorated functions for the Supervisor
     """
 
-    async def _save_events(
+    async def _save_single_event(
         agent_name: str,
         tool_name: str,
-        result: SubAgentExecutionResult
+        event: Dict[str, Any]
     ) -> None:
-        """Save sub-agent execution events immediately to Message collection."""
+        """Save a single sub-agent event immediately to Message collection."""
         if not message_repo or not session_id:
-            logger.warning("Cannot save sub-agent events: message_repo or session_id not set")
             return
 
         role = AGENT_NAME_TO_ROLE.get(agent_name)
@@ -142,47 +140,57 @@ def create_subagent_tools(
             logger.error(f"Unknown agent name: {agent_name}")
             return
 
-        for seq, event in enumerate(result.events, 1):
-            event_type = event.get("type", "unknown")
+        event_type = event.get("type", "unknown")
+        seq = event.get("sequence", 0)
 
-            if event_type == "text":
-                msg = MessageEntity.create(
-                    session_id=session_id,
-                    role=role,
-                    content=event.get("content", ""),
-                    metadata={
-                        "event_type": "text",
-                        "subagent_tool": tool_name,
-                        "sequence": seq,
-                    }
-                )
-            elif event_type == "tool_use":
-                tool_name_inner = event.get("tool_name", "unknown")
-                msg = MessageEntity.create(
-                    session_id=session_id,
-                    role=role,
-                    content=f"Tool: {tool_name_inner}",
-                    metadata={
-                        "event_type": "tool_use",
-                        "subagent_tool": tool_name,
-                        "sequence": seq,
-                        "tool_name": tool_name_inner,
-                        "tool_input": event.get("tool_input"),
-                    }
-                )
-            else:
-                # Skip unknown event types
-                continue
+        if event_type == "text":
+            msg = MessageEntity.create(
+                session_id=session_id,
+                role=role,
+                content=event.get("content", ""),
+                metadata={
+                    "event_type": "text",
+                    "subagent_tool": tool_name,
+                    "sequence": seq,
+                }
+            )
+        elif event_type == "tool_use":
+            tool_name_inner = event.get("tool_name", "unknown")
+            msg = MessageEntity.create(
+                session_id=session_id,
+                role=role,
+                content=f"Tool: {tool_name_inner}",
+                metadata={
+                    "event_type": "tool_use",
+                    "subagent_tool": tool_name,
+                    "sequence": seq,
+                    "tool_name": tool_name_inner,
+                    "tool_input": event.get("tool_input"),
+                }
+            )
+        elif event_type == "tool_result":
+            tool_use_id = event.get("tool_use_id", "unknown")
+            msg = MessageEntity.create(
+                session_id=session_id,
+                role=role,
+                content=f"Tool Result: {tool_use_id}",
+                metadata={
+                    "event_type": "tool_result",
+                    "subagent_tool": tool_name,
+                    "sequence": seq,
+                    "tool_use_id": tool_use_id,
+                    "tool_output": event.get("content"),
+                    "is_error": event.get("is_error", False),
+                }
+            )
+        else:
+            # Skip unknown event types
+            return
 
-            try:
-                await message_repo.create(msg)
-            except Exception as e:
-                logger.error(f"Failed to save sub-agent event: {e}")
-
-        logger.debug(
-            f"Saved {len(result.events)} events from {agent_name} agent "
-            f"(subagent_tool={tool_name})"
-        )
+        try:
+            await message_repo.create(msg)
+        except Exception as e:
+            logger.error(f"Failed to save sub-agent event: {e}")
 
     @tool(
         "ask_slack_agent",
@@ -203,11 +211,14 @@ def create_subagent_tools(
 
         agent = subagents["slack"]
 
+        # Create callback for real-time event saving
+        async def save_event(event: Dict[str, Any]) -> None:
+            await _save_single_event("slack", "ask_slack_agent", event)
+
         try:
             async with agent:
-                result = await agent.execute(task)
-            # Save events immediately
-            await _save_events("slack", "ask_slack_agent", result)
+                result = await agent.execute(task, on_event=save_event)
+            # Events already saved in real-time via callback
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Slack agent execution failed: {e}")
@@ -235,11 +246,14 @@ def create_subagent_tools(
 
         agent = subagents["product"]
 
+        # Create callback for real-time event saving
+        async def save_event(event: Dict[str, Any]) -> None:
+            await _save_single_event("product", "ask_product_agent", event)
+
         try:
             async with agent:
-                result = await agent.execute(task)
-            # Save events immediately
-            await _save_events("product", "ask_product_agent", result)
+                result = await agent.execute(task, on_event=save_event)
+            # Events already saved in real-time via callback
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Product domain agent execution failed: {e}")
@@ -267,11 +281,14 @@ def create_subagent_tools(
 
         agent = subagents["data"]
 
+        # Create callback for real-time event saving
+        async def save_event(event: Dict[str, Any]) -> None:
+            await _save_single_event("data", "ask_data_agent", event)
+
         try:
             async with agent:
-                result = await agent.execute(task)
-            # Save events immediately
-            await _save_events("data", "ask_data_agent", result)
+                result = await agent.execute(task, on_event=save_event)
+            # Events already saved in real-time via callback
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Data analysis agent execution failed: {e}")
@@ -299,11 +316,14 @@ def create_subagent_tools(
 
         agent = subagents["memory"]
 
+        # Create callback for real-time event saving
+        async def save_event(event: Dict[str, Any]) -> None:
+            await _save_single_event("memory", "ask_memory_agent", event)
+
         try:
             async with agent:
-                result = await agent.execute(task)
-            # Save events immediately
-            await _save_events("memory", "ask_memory_agent", result)
+                result = await agent.execute(task, on_event=save_event)
+            # Events already saved in real-time via callback
             return {"content": [{"type": "text", "text": result.final_response}]}
         except Exception as e:
             logger.error(f"Memory agent execution failed: {e}")

@@ -48,7 +48,7 @@ src/
 │   │   └── growth_memory.py    # GrowthMemory entity (6개 요약 단위)
 │   ├── ports/           # Repository interfaces
 │   │   ├── agent_session.py
-│   │   ├── message.py          # get_by_session_id, get_by_parent_message_id (레거시)
+│   │   ├── message.py          # get_by_session_id 포함
 │   │   └── growth_memory.py    # vector_search 포함
 │   ├── value_objects/
 │   │   ├── agent_enums.py      # SessionStatus, MessageRole (SUBAGENT_* roles 포함)
@@ -85,7 +85,7 @@ src/
 │   │       └── growth_memory_adapter.py  # $vectorSearch 지원
 │   ├── repositories/    # Repository implementations
 │   │   └── mongodb/
-│   │       ├── message.py          # get_by_parent_message_id 구현
+│   │       ├── message.py          # get_by_session_id 구현
 │   │       └── growth_memory.py    # vector_search 구현
 │   ├── aws/             # SQS producer/consumer
 │   ├── openai/          # OpenAI embedding client (text-embedding-3-small)
@@ -107,12 +107,10 @@ Dockerfile               # Python 3.12-slim + Node.js (MCP 서버용)
 docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
-├── agent_chat.py        # POC CLI for API testing (실시간 스트리밍, 1.5초 polling)
+├── agent_chat.py        # POC CLI for API testing (Claude Code 스타일, 1초 polling)
 ├── archive_session.py   # Archive session + SQS enqueue
 ├── reset_sessions.py    # Delete all AgentSession and Message documents
-├── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
-├── debug_agent_flow.py  # Sub-agent 이벤트 저장 검증 스크립트
-└── query_messages.py    # 세션별 Message 조회 디버그 스크립트
+└── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
 ```
 
 ---
@@ -682,41 +680,51 @@ class MessageRole(str, Enum):
 
 **Sub-agent 이벤트 저장 구조**:
 ```python
-# Sub-agent 이벤트는 개별 Message 문서로 저장
+# Sub-agent 이벤트는 개별 Message 문서로 저장 (3가지 event_type)
+# 1. text: 텍스트 응답
+# 2. tool_use: 도구 호출 (tool_name, tool_input)
+# 3. tool_result: 도구 결과 (tool_use_id, tool_output, is_error)
+
 MessageEntity.create(
     session_id=session_id,
     role=MessageRole.SUBAGENT_DATA,  # agent 종류별 role
     content="...",
     metadata={
-        "event_type": "text" | "tool_use",
-        "subagent_tool": "ask_data_agent",  # 어떤 sub-agent tool에서 생성되었는지
+        "event_type": "text" | "tool_use" | "tool_result",
+        "subagent_tool": "ask_data_agent",
         "sequence": 1,
-        # tool_use인 경우:
-        "tool_name": "run_eventlog_aggregation",
-        "tool_input": {...}
+        # tool_use: tool_name, tool_input
+        # tool_result: tool_use_id, tool_output, is_error
     }
 )
 ```
 
-**Immediate Saving Pattern** (supervisor/tools/subagent_tools.py):
+**Real-time Event Saving Pattern** (base.py + subagent_tools.py):
 ```python
-# Sub-agent 실행 완료 즉시 Message 컬렉션에 저장
-tools = create_subagent_tools(
-    self._subagents,
-    message_repo=message_repo,
-    session_id=session_id,
-)
+# base.py - on_event 콜백으로 실시간 이벤트 전달
+async def execute(
+    self,
+    task: str,
+    on_event: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+) -> SubAgentExecutionResult:
+    # 각 이벤트 발생 시 즉시 콜백 호출
+    if on_event:
+        await on_event(event)  # text, tool_use, tool_result
 
-# 각 ask_*_agent 함수 내부에서 즉시 저장
+# subagent_tools.py - 이벤트 발생 즉시 DB 저장
+async def _save_single_event(agent_name, subagent_tool, event):
+    """이벤트 하나를 즉시 Message로 저장"""
+    await message_repo.create(MessageEntity.create(...))
+
 async def ask_data_agent(args):
-    async with agent:
-        result = await agent.execute(task)
-    # 즉시 저장 - SDK 타이밍 이슈 해결
-    await _save_events("data", "ask_data_agent", result)
+    result = await agent.execute(
+        task,
+        on_event=lambda e: _save_single_event("data", "ask_data_agent", e)
+    )
     return {"content": [...]}
 ```
 
-**장점**: 단일 컬렉션으로 구조 단순화, SDK 타이밍 이슈 해결, 실시간 진행 상황 조회
+**장점**: 실시간 진행 상황 조회 (CLI에서 도구 호출 즉시 표시), 시간 분산 저장 (125초 → 40초 등)
 
 ---
 
@@ -730,15 +738,15 @@ API 테스트용 대화형 CLI (ANSI 색상 출력, 실시간 스트리밍):
 python scripts/agent_chat.py
 ```
 
-**기능**: 자동 세션 생성 → 대화 루프 (1.5초 polling, 실시간 메시지 출력) → Ctrl+C 종료
+**기능**: 자동 세션 생성 → 대화 루프 (1초 polling, 실시간 메시지 출력) → Ctrl+C 종료
 
-**출력 형식**:
-- 🧑 You: Cyan + Bold (사용자)
-- 🤖 Agent: Green (Supervisor 응답)
-- 🔧 [subagent]: Dim (서브에이전트 호출)
-- 📊 [agent_name] tool_name(...): Dim (서브에이전트 도구 호출)
-- 💬 [agent_name] content: Dim (서브에이전트 텍스트)
-- ⚠️ System: Yellow (시스템 메시지)
+**출력 형식** (Claude Code 스타일):
+- `>` Cyan 프롬프트 (사용자 입력)
+- `● AgentName` Blue + Bold (서브에이전트 호출)
+- `  tool_name` (도구 호출, 들여쓰기)
+- `  ✓ summary` Green (도구 결과 성공)
+- `  ✗ error` Red (도구 결과 실패)
+- 최종 응답은 데코레이션 없이 깔끔하게 출력
 
 ### Reset Sessions (scripts/reset_sessions.py)
 
