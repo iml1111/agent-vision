@@ -17,13 +17,19 @@ BASE_URL = "http://localhost:8000"
 
 # ANSI color codes (Claude Code style)
 class Colors:
-    CYAN = "\033[96m"      # User prompt
+    CYAN = "\033[96m"      # User prompt, Agent header
     GREEN = "\033[92m"     # Success (✓)
     YELLOW = "\033[93m"    # Warning
     RED = "\033[91m"       # Error (✗)
-    BLUE = "\033[94m"      # Agent name
+    BLUE = "\033[94m"      # Agent name (legacy)
+    MAGENTA = "\033[95m"   # Sub-agent text response
+    DIM = "\033[2m"        # Dim (separator, arrows)
     BOLD = "\033[1m"
     RESET = "\033[0m"
+
+
+# Global state for tracking message transitions
+_last_message_role = None
 
 
 class AgentChatClient:
@@ -73,27 +79,26 @@ class AgentChatClient:
         self,
         session_id: str,
         last_message_count: int,
-        interval: float = 1.0,
-        max_attempts: int = 200
+        interval: float = 5.0,
     ) -> tuple[str, int]:
         """
         Poll status and stream new messages in real-time.
+        Polls indefinitely until task completes (no timeout).
 
         Args:
             session_id: Session ID to poll
             last_message_count: Last known message count
             interval: Polling interval in seconds
-            max_attempts: Maximum polling attempts
 
         Returns:
             Tuple of (final_status, new_message_count)
         """
         spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        attempt = 0
+        spin_idx = 0
         current_count = last_message_count
         first_output = True
 
-        while attempt < max_attempts:
+        while True:
             # Get status and messages in parallel
             status_data = await self.get_status(session_id)
             status = status_data.get("status", "unknown")
@@ -136,14 +141,11 @@ class AgentChatClient:
                 return status, current_count
 
             # Show spinner
-            spin_char = spinner[attempt % len(spinner)]
+            spin_char = spinner[spin_idx % len(spinner)]
             print(f"\r{spin_char} Processing...", end="", flush=True)
 
             await asyncio.sleep(interval)
-            attempt += 1
-
-        print("\r" + " " * 40 + "\r", end="", flush=True)
-        return "timeout", current_count
+            spin_idx += 1
 
 
 def print_header():
@@ -154,59 +156,69 @@ def print_header():
 
 
 def print_message(msg: dict) -> None:
-    """Print a message with Claude Code style formatting."""
+    """Print a message with improved hierarchy visualization."""
+    global _last_message_role
+
     role = msg.get("role", "")
     metadata = msg.get("metadata", {}) or {}
     event_type = metadata.get("event_type", "text")
     content = msg.get("content", "")
 
-    # Sub-agent event messages
-    if role.startswith("subagent_"):
-        agent_name = role.replace("subagent_", "").capitalize()
+    # Print separator when transitioning from sub-agent to supervisor response
+    if (
+        _last_message_role
+        and _last_message_role.startswith("subagent_")
+        and not role.startswith("subagent_")
+        and event_type != "subagent_call"
+    ):
+        print(f"\n{Colors.DIM}{'─' * 40}{Colors.RESET}")
 
+    _last_message_role = role
+
+    # 1. Supervisor calling a sub-agent (header + task)
+    if event_type == "subagent_call":
+        subagent = metadata.get("subagent", "Agent")
+        task = metadata.get("task", "")
+        print(f"\n{Colors.CYAN}{Colors.BOLD}● {subagent}{Colors.RESET}")
+        if task:
+            print(f"    {Colors.DIM}📋 {task}{Colors.RESET}")
+        return
+
+    # 2. Sub-agent events (indented with 4 spaces)
+    if role.startswith("subagent_"):
         if event_type == "tool_use":
             tool_name = metadata.get("tool_name", "unknown")
             # Extract short tool name (remove mcp__xxx__ prefix)
             short_name = tool_name.split("__")[-1] if "__" in tool_name else tool_name
-            print(f"  {short_name}")
+            print(f"    {Colors.DIM}↳{Colors.RESET} {short_name}")
 
         elif event_type == "tool_result":
             tool_output = metadata.get("tool_output", "")
             is_error = metadata.get("is_error", False)
-            # Create brief summary from output
             output_str = str(tool_output)
+            # Show first line of output (full text, no truncation)
+            summary = output_str.split("\n")[0]
             if is_error:
-                print(f"  {Colors.RED}✗{Colors.RESET} error")
+                print(f"      {Colors.RED}✗{Colors.RESET} {summary}")
             else:
-                # Extract meaningful summary (first line or count)
-                summary = output_str.split("\n")[0][:60]
-                if len(output_str) > 60:
-                    summary += "..."
-                print(f"  {Colors.GREEN}✓{Colors.RESET} {summary}")
+                print(f"      {Colors.GREEN}✓{Colors.RESET} {summary}")
 
         else:
-            # Text from sub-agent - show with indentation
+            # Text from sub-agent - show full content with magenta marker
             if content:
-                # Indent multi-line content
-                lines = content.split("\n")
-                for line in lines[:3]:  # Show first 3 lines
-                    print(f"  {line}")
-                if len(lines) > 3:
-                    print(f"  ...")
+                print(f"    {Colors.MAGENTA}💬{Colors.RESET}")
+                for line in content.split("\n"):
+                    print(f"       {line}")
+        return
 
-    # Supervisor calling a sub-agent
-    elif event_type == "subagent_call":
-        subagent = metadata.get("subagent", "unknown").capitalize()
-        print(f"\n{Colors.BLUE}{Colors.BOLD}● {subagent}{Colors.RESET}")
-
-    # System messages
-    elif role == "system":
+    # 3. System messages
+    if role == "system":
         print(f"{Colors.YELLOW}! {content}{Colors.RESET}")
+        return
 
-    # Final assistant response (no decoration)
-    else:
-        if content:
-            print(f"\n{content}")
+    # 4. Supervisor final response (separator handled above)
+    if role == "assistant" and content:
+        print(f"\n{content}")
 
 
 async def chat_loop(client: AgentChatClient, session_id: str):
@@ -247,14 +259,10 @@ async def chat_loop(client: AgentChatClient, session_id: str):
                 print(f"  Detail: {error_detail}")
             continue
 
-        # Stream messages in real-time while polling status
+        # Stream messages in real-time while polling status (no timeout)
         final_status, last_message_count = await client.poll_and_stream(
             session_id, last_message_count
         )
-
-        if final_status == "timeout":
-            print(f"{Colors.YELLOW}! Timeout{Colors.RESET}")
-            continue
 
         if final_status == "archived":
             print(f"{Colors.YELLOW}! Session archived{Colors.RESET}")

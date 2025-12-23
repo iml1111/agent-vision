@@ -27,6 +27,21 @@ from domain.exceptions import (
 logger = get_logger(__name__)
 
 
+def _extract_agent_name(tool_name: str) -> str:
+    """
+    MCP tool name에서 깔끔한 에이전트 이름 추출.
+
+    Examples:
+        mcp__supervisor-tools__ask_data_agent -> DataAgent
+        mcp__supervisor-tools__ask_slack_agent -> SlackAgent
+        ask_memory_agent -> MemoryAgent
+    """
+    if "ask_" in tool_name:
+        parts = tool_name.split("ask_")[-1]  # "data_agent"
+        return parts.replace("_", " ").title().replace(" ", "")  # "DataAgent"
+    return tool_name.split("__")[-1].replace("_", " ").title().replace(" ", "")
+
+
 class AgentOrchestrationService:
     """
     Agent message processing and execution service.
@@ -218,14 +233,18 @@ class AgentOrchestrationService:
                         # Extract task from sub-agent call
                         task_description = tool_input.get("task", "")
 
+                        # Extract clean agent name from MCP tool name
+                        agent_name = _extract_agent_name(tool_name)
+
                         message = MessageEntity.create(
                             session_id=session_id,
                             role=MessageRole.ASSISTANT,
-                            content=f"Delegated to: {tool_name}",
+                            content=f"Delegated to: {agent_name}",
                             metadata={
                                 "event_type": "subagent_call",
                                 "sequence": sequence,
-                                "subagent": tool_name,
+                                "subagent": agent_name,
+                                "subagent_tool": tool_name,  # 원본 보존 (디버깅용)
                                 "task": task_description,
                                 "tool_call": {
                                     "id": event.tool_call.id,

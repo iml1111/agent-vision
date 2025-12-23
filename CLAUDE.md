@@ -107,7 +107,7 @@ Dockerfile               # Python 3.12-slim + Node.js (MCP 서버용)
 docker-compose.yml       # API + Worker 서비스 (cloud MongoDB/SQS 사용)
 
 scripts/
-├── agent_chat.py        # POC CLI for API testing (Claude Code 스타일, 1초 polling)
+├── agent_chat.py        # POC CLI for API testing (5초 polling, 무제한 대기)
 ├── archive_session.py   # Archive session + SQS enqueue
 ├── reset_sessions.py    # Delete all AgentSession and Message documents
 └── insert_sample_growth_memory.py  # GrowthMemory 샘플 문서 삽입
@@ -678,7 +678,29 @@ class MessageRole(str, Enum):
     SUBAGENT_MEMORY = "subagent_memory"
 ```
 
-**Sub-agent 이벤트 저장 구조**:
+**Sub-agent 호출 이벤트 저장 구조** (Supervisor가 sub-agent를 호출할 때):
+```python
+# subagent_call: Supervisor → Sub-agent 호출 이벤트
+MessageEntity.create(
+    session_id=session_id,
+    role=MessageRole.ASSISTANT,
+    content=f"Delegated to: {agent_name}",  # "DataAgent" 등 clean name
+    metadata={
+        "event_type": "subagent_call",
+        "subagent": agent_name,           # "DataAgent" (clean name for display)
+        "subagent_tool": tool_name,       # "mcp__supervisor-tools__ask_data_agent" (원본)
+        "task": task_description,         # Sub-agent에게 할당된 task
+        "sequence": 1,
+        "tool_call": {...}
+    }
+)
+
+# _extract_agent_name() 헬퍼로 clean name 추출:
+# mcp__supervisor-tools__ask_data_agent → DataAgent
+# ask_memory_agent → MemoryAgent
+```
+
+**Sub-agent 내부 이벤트 저장 구조** (sub-agent 실행 중):
 ```python
 # Sub-agent 이벤트는 개별 Message 문서로 저장 (3가지 event_type)
 # 1. text: 텍스트 응답
@@ -738,15 +760,30 @@ API 테스트용 대화형 CLI (ANSI 색상 출력, 실시간 스트리밍):
 python scripts/agent_chat.py
 ```
 
-**기능**: 자동 세션 생성 → 대화 루프 (1초 polling, 실시간 메시지 출력) → Ctrl+C 종료
+**기능**: 자동 세션 생성 → 대화 루프 (5초 polling, 무제한 대기) → Ctrl+C 종료
 
-**출력 형식** (Claude Code 스타일):
-- `>` Cyan 프롬프트 (사용자 입력)
-- `● AgentName` Blue + Bold (서브에이전트 호출)
-- `  tool_name` (도구 호출, 들여쓰기)
-- `  ✓ summary` Green (도구 결과 성공)
-- `  ✗ error` Red (도구 결과 실패)
-- 최종 응답은 데코레이션 없이 깔끔하게 출력
+**출력 형식** (계층적 시각화):
+```
+> 사용자 입력
+
+● DataAgent                          # Cyan + Bold (서브에이전트 호출)
+    📋 결제자 vs 비결제자 행동 비교   # DIM (task 설명)
+    ↳ get_eventlog_specs              # DIM 화살표 (도구 호출)
+      ✓ 139 events loaded             # Green (성공)
+    ↳ run_eventlog_aggregation
+      ✗ aggregation failed            # Red (실패)
+    💬                                 # Magenta (서브에이전트 텍스트)
+       분석 결과입니다...
+
+────────────────────────────────────────  # 전환 구분선
+
+최종 응답 (데코레이션 없음)
+```
+
+**특징**:
+- 서브에이전트 호출 시 task 설명 표시 (병렬 호출 구분 용이)
+- 도구 결과는 첫 줄 전체 표시 (truncation 없음)
+- 서브에이전트 → Supervisor 전환 시 구분선 출력
 
 ### Reset Sessions (scripts/reset_sessions.py)
 
