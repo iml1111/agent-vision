@@ -203,7 +203,7 @@ get_slack_messages(channel_id="C0123456789", limit=20)""",
             Messages from the channel
         """
         channel_id = args.get("channel_id")
-        limit = min(args.get("limit", 50), 100)
+        limit = min(int(args.get("limit") or 50), 100)
         oldest = args.get("oldest")
         latest = args.get("latest")
 

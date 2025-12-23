@@ -85,7 +85,7 @@ src/
 │   │       └── growth_memory_adapter.py  # $vectorSearch 지원
 │   ├── repositories/    # Repository implementations
 │   │   └── mongodb/
-│   │       ├── message.py          # get_by_session_id 구현
+│   │       ├── message.py          # get_by_session_id 구현 (created_at 정렬)
 │   │       └── growth_memory.py    # vector_search 구현
 │   ├── aws/             # SQS producer/consumer
 │   ├── openai/          # OpenAI embedding client (text-embedding-3-small)
@@ -502,6 +502,15 @@ def create_eventlog_tools(eventlog_adapter) -> List:
     return [run_eventlog_aggregation]
 ```
 
+**LLM 인자 타입 변환**: LLM이 숫자 파라미터를 문자열로 전달할 수 있으므로 `int()` 변환 필수:
+```python
+# ❌ Wrong - TypeError: '<' not supported between instances of 'int' and 'str'
+limit = min(args.get("limit", 3), 10)
+
+# ✅ Correct - Handle string input from LLM
+limit = min(int(args.get("limit") or 3), 10)
+```
+
 ### Built-in Tools
 
 Supervisor 및 모든 Sub-Agent에서 사용 가능한 기본 도구:
@@ -761,6 +770,10 @@ python scripts/agent_chat.py
 ```
 
 **기능**: 자동 세션 생성 → 대화 루프 (5초 polling, 무제한 대기) → Ctrl+C 종료
+
+**페이지네이션**: 100개 이상의 메시지도 자동 처리
+- `status` API의 `message_count`로 새 메시지 감지
+- `offset` 기반 페이지네이션으로 모든 메시지 조회 (100개씩)
 
 **출력 형식** (계층적 시각화):
 ```

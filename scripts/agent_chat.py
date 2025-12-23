@@ -66,14 +66,46 @@ class AgentChatClient:
         response.raise_for_status()
         return response.json()
 
-    async def get_messages(self, session_id: str, limit: int = 50) -> dict:
-        """Get conversation messages"""
+    async def get_messages(
+        self,
+        session_id: str,
+        limit: int = 100,
+        offset: int = 0
+    ) -> dict:
+        """Get conversation messages with pagination support"""
         response = await self.client.get(
             f"{self.api_base}/sessions/{session_id}/messages",
-            params={"limit": limit}
+            params={"limit": limit, "offset": offset}
         )
         response.raise_for_status()
         return response.json()
+
+    async def fetch_new_messages(
+        self,
+        session_id: str,
+        from_offset: int,
+        to_count: int
+    ) -> list:
+        """
+        Fetch all new messages using pagination.
+        Handles cases where new messages exceed single page limit (100).
+        """
+        all_messages = []
+        current_offset = from_offset
+
+        while current_offset < to_count:
+            messages_data = await self.get_messages(
+                session_id,
+                limit=100,
+                offset=current_offset
+            )
+            messages = messages_data.get("messages", [])
+            if not messages:
+                break
+            all_messages.extend(messages)
+            current_offset += len(messages)
+
+        return all_messages
 
     async def poll_and_stream(
         self,
@@ -99,25 +131,23 @@ class AgentChatClient:
         first_output = True
 
         while True:
-            # Get status and messages in parallel
+            # Get status (includes total message_count)
             status_data = await self.get_status(session_id)
             status = status_data.get("status", "unknown")
+            status_count = status_data.get("message_count", 0)
 
-            # Check for new messages
-            messages_data = await self.get_messages(session_id)
-            messages = messages_data.get("messages", [])
-            new_count = messages_data.get("total_count", 0)
-
-            # Print new messages immediately
-            if new_count > current_count:
+            # Print new messages immediately using pagination
+            if status_count > current_count:
                 # Clear spinner line
                 print("\r" + " " * 40 + "\r", end="", flush=True)
 
-                # Get new messages (assistant, sub-agents, and system)
-                new_messages = [
-                    m for m in messages[current_count:]
-                    if m.get("role") != "user"
-                ]
+                # Fetch all new messages (handles >100 case)
+                all_new = await self.fetch_new_messages(
+                    session_id,
+                    from_offset=current_count,
+                    to_count=status_count
+                )
+                new_messages = [m for m in all_new if m.get("role") != "user"]
 
                 if first_output and new_messages:
                     print()  # Empty line before first message
@@ -126,7 +156,7 @@ class AgentChatClient:
                 for msg in new_messages:
                     print_message(msg)
 
-                current_count = new_count
+                current_count = status_count
 
             # Check terminal conditions
             if status == "active":
@@ -196,8 +226,10 @@ def print_message(msg: dict) -> None:
             tool_output = metadata.get("tool_output", "")
             is_error = metadata.get("is_error", False)
             output_str = str(tool_output)
-            # Show first line of output (full text, no truncation)
-            summary = output_str.split("\n")[0]
+            # Show first line of output (max 300 chars)
+            summary = output_str.split("\n")[0][:300]
+            if len(output_str.split("\n")[0]) > 300:
+                summary += "..."
             if is_error:
                 print(f"      {Colors.RED}✗{Colors.RESET} {summary}")
             else:

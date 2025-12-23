@@ -290,10 +290,10 @@ class AgentOrchestrationService:
             await self._message_repo.create(error_message)
 
         except Exception as e:
-            # Restore session to ACTIVE state on error (allows retry)
-            await self._session_repo.update_status(session_id, SessionStatus.ACTIVE)
+            logger.error(f"Agent execution failed for session {session_id}: {e}")
 
-            # Save error as system message
+            # Save error as system message FIRST (before status change)
+            # This ensures CLI sees the error message before detecting status=ACTIVE
             error_message = MessageEntity.create(
                 session_id=session_id,
                 role=MessageRole.SYSTEM,
@@ -302,7 +302,9 @@ class AgentOrchestrationService:
             )
             await self._message_repo.create(error_message)
 
-            logger.error(f"Agent execution failed for session {session_id}: {e}")
+            # Then restore session to ACTIVE state (allows retry)
+            await self._session_repo.update_status(session_id, SessionStatus.ACTIVE)
+
             raise
 
     async def _archive_session(

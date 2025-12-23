@@ -78,6 +78,6 @@ class MongoMessageRepository(MessageRepository):
             {"metadata.parent_message_id": parent_message_id},
             projection=projection,
             limit=limit,
-            sort=[("metadata.sequence", 1)]  # Order by sequence
+            sort=[("created_at", 1)]  # Order by creation time (avoids mixed-type issues)
         )
         return [MessageEntity.from_dict(doc) for doc in docs]

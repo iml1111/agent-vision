@@ -120,7 +120,7 @@ def create_growth_memory_tools(
             List of similar past Growth cases
         """
         query = args.get("query", "")
-        limit = min(args.get("limit", 3), 10)  # Cap at 10
+        limit = min(int(args.get("limit") or 3), 10)  # Cap at 10
 
         if not query or not query.strip():
             return {
@@ -182,7 +182,7 @@ def create_growth_memory_tools(
             Session conversation history with messages
         """
         session_id = args.get("session_id", "")
-        limit = min(args.get("limit", 50), 100)  # Cap at 100
+        limit = min(int(args.get("limit") or 50), 100)  # Cap at 100
 
         if not session_id or not session_id.strip():
             return {
