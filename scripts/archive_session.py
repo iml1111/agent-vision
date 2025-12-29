@@ -33,7 +33,7 @@ async def main():
 
     # Initialize
     config = Config()
-    db_client = MongoDBClient(config.MONGODB_URI, config.MONGODB_NAME)
+    db_client = MongoDBClient(config.mongodb_uri, config.mongodb_name)
     sqs_producer = SQSProducerAdapter(
         queue_url=config.sqs_queue_url,
         aws_access_key_id=config.aws_access_key_id,
@@ -42,7 +42,7 @@ async def main():
     )
 
     try:
-        adapter = AgentSessionAdapter(db_client.database)
+        adapter = AgentSessionAdapter(db_client.db)
         repo = MongoAgentSessionRepository(adapter)
 
         # Get session
@@ -56,9 +56,11 @@ async def main():
             print(f"Session already archived: {args.session_id}")
             sys.exit(0)
 
-        # Archive session
-        archived = session.archive()
-        await repo.update(archived)
+        # Archive session (use repository method)
+        success = await repo.archive_session(args.session_id)
+        if not success:
+            print(f"Error: Failed to archive session: {args.session_id}")
+            sys.exit(1)
 
         print(f"Session archived successfully: {args.session_id}")
         print(f"  Previous status: {session.status.value}")
